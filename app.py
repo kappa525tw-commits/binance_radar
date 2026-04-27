@@ -31,20 +31,67 @@ def _safe_float(v, default=0.0):
         return default
 
 def get_binance_data():
-    endpoints = [
+    """Fetch 24H ticker data. Try Binance first, fall back to CoinGecko."""
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+    binance_endpoints = [
         'https://api.binance.com/api/v3/ticker/24hr',
         'https://api1.binance.com/api/v3/ticker/24hr',
         'https://api2.binance.com/api/v3/ticker/24hr',
         'https://api3.binance.com/api/v3/ticker/24hr',
     ]
-    for url in endpoints:
+    for url in binance_endpoints:
         try:
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(url, timeout=20, headers=headers)
             if resp.status_code == 200:
-                return resp.json()
-        except:
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    logger.info(f"Binance data fetched OK from {url}, {len(data)} tickers")
+                    return data
+            else:
+                logger.warning(f"Binance endpoint {url} returned HTTP {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Binance endpoint {url} failed: {e}")
             continue
+
+    # --- Fallback: CoinGecko (no region restrictions) ---
+    logger.warning("All Binance endpoints failed. Trying CoinGecko fallback...")
+    try:
+        # Fetch top 250 by 24H change
+        cg_url = 'https://api.coingecko.com/api/v3/coins/markets'
+        params = {
+            'vs_currency': 'usd',
+            'order': 'price_change_percentage_24h_desc',
+            'per_page': 250,
+            'page': 1,
+            'sparkline': False,
+            'price_change_percentage': '24h'
+        }
+        resp = requests.get(cg_url, params=params, timeout=20, headers=headers)
+        if resp.status_code == 200:
+            cg_data = resp.json()
+            # Normalize to Binance-like format
+            normalized = []
+            for coin in cg_data:
+                pct = coin.get('price_change_percentage_24h') or 0
+                price = coin.get('current_price') or 0
+                vol = coin.get('total_volume') or 0
+                sym = (coin.get('symbol') or '').upper() + 'USDT'
+                normalized.append({
+                    'symbol': sym,
+                    'priceChangePercent': str(pct),
+                    'lastPrice': str(price),
+                    'quoteVolume': str(vol),
+                })
+            logger.info(f"CoinGecko fallback OK, {len(normalized)} tickers")
+            return normalized
+        else:
+            logger.error(f"CoinGecko returned HTTP {resp.status_code}")
+    except Exception as e:
+        logger.error(f"CoinGecko fallback also failed: {e}")
+
     return None
+
+
 
 
 def fall_snap():
