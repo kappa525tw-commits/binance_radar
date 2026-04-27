@@ -42,7 +42,7 @@ def get_binance_data():
 def fetch_latest_market():
     logger.info("Task: fetch_latest_market starting...")
     data = get_binance_data()
-    if data and r:
+    if data and isinstance(data, list) and r:
         payload = {
             "ts": int(time.time() * 1000),
             "data": data,
@@ -54,7 +54,7 @@ def fetch_latest_market():
 def tracker_snap():
     logger.info("Task: tracker_snap starting...")
     data = get_binance_data()
-    if data and r:
+    if data and isinstance(data, list) and r:
         prices = {}
         for d in data:
             prices[d['symbol']] = {
@@ -73,7 +73,7 @@ def tracker_snap():
 def fall_snap():
     logger.info("Task: fall_snap starting...")
     data = get_binance_data()
-    if data and r:
+    if data and isinstance(data, list) and r:
         sorted_coins = []
         for d in data:
             try:
@@ -101,11 +101,27 @@ def fall_snap():
         r.ltrim("radar:fall:snaps", -75, -1)
         logger.info("Task: fall_snap completed.")
 
+from datetime import datetime
+
 # Initialize scheduler
 scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_latest_market, 'interval', minutes=5)
-scheduler.add_job(tracker_snap, 'interval', minutes=30)
-scheduler.add_job(fall_snap, 'interval', minutes=60)
+
+def init_startup():
+    if r:
+        if not r.get("radar:latest_market"):
+            fetch_latest_market()
+        if r.llen("radar:tracker:snaps") == 0:
+            tracker_snap()
+        if r.llen("radar:fall:snaps") == 0:
+            fall_snap()
+
+# Run once on startup in background to populate empty database
+scheduler.add_job(init_startup, 'date', run_date=datetime.now())
+
+# Use cron for precise scheduling even if server restarts
+scheduler.add_job(fetch_latest_market, 'cron', minute='*/5')
+scheduler.add_job(tracker_snap, 'cron', minute='0,30')
+scheduler.add_job(fall_snap, 'cron', minute='0')
 scheduler.start()
 
 # API Endpoints
@@ -141,13 +157,4 @@ def ping():
     return jsonify({"status": "ok", "time": time.time()})
 
 if __name__ == '__main__':
-    # Initial fetches if empty
-    if r:
-        if not r.get("radar:latest_market"):
-            fetch_latest_market()
-        if r.llen("radar:tracker:snaps") == 0:
-            tracker_snap()
-        if r.llen("radar:fall:snaps") == 0:
-            fall_snap()
-            
     app.run(host='0.0.0.0', port=5000, debug=False)
