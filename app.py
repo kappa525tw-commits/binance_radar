@@ -16,12 +16,19 @@ CORS(app)
 
 redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 try:
-    r = redis.from_url(redis_url, decode_responses=True)
+    # Upstash uses rediss:// (TLS). ssl_cert_reqs=None avoids cert validation issues on Render.
+    r = redis.from_url(redis_url, decode_responses=True, ssl_cert_reqs=None)
     r.ping()
     logger.info("Redis connected successfully.")
 except Exception as e:
     logger.error(f"Redis connection failed: {e}")
     r = None
+
+def _safe_float(v, default=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
 
 def get_binance_data():
     endpoints = [
@@ -43,30 +50,42 @@ def fetch_latest_market():
     logger.info("Task: fetch_latest_market starting...")
     data = get_binance_data()
     if data and isinstance(data, list) and r:
+        # Only store coins with priceChangePercent >= 5% to stay within Upstash 1MB key limit
+        filtered = [
+            d for d in data
+            if _safe_float(d.get('priceChangePercent')) >= 5.0
+        ]
         payload = {
             "ts": int(time.time() * 1000),
-            "data": data,
+            "data": filtered,
             "src": "Backend API"
         }
-        r.set("radar:latest_market", json.dumps(payload))
+        blob = json.dumps(payload)
+        logger.info(f"fetch_latest_market: {len(filtered)} coins, payload {len(blob)//1024}KB")
+        r.set("radar:latest_market", blob)
         logger.info("Task: fetch_latest_market completed.")
 
 def tracker_snap():
     logger.info("Task: tracker_snap starting...")
     data = get_binance_data()
     if data and isinstance(data, list) and r:
+        # Only store coins with positive change to compress payload size
         prices = {}
         for d in data:
-            prices[d['symbol']] = {
-                "price": float(d['lastPrice']),
-                "vol": float(d['quoteVolume'])
-            }
+            pct = _safe_float(d.get('priceChangePercent'))
+            if pct > 0:
+                prices[d['symbol']] = {
+                    "price": float(d['lastPrice']),
+                    "vol": float(d['quoteVolume'])
+                }
         snap = {
             "ts": int(time.time() * 1000),
             "prices": prices
         }
-        r.rpush("radar:tracker:snaps", json.dumps(snap))
-        # Keep only the last 10 snapshots (5 hours)
+        blob = json.dumps(snap)
+        logger.info(f"tracker_snap: {len(prices)} coins, payload {len(blob)//1024}KB")
+        r.rpush("radar:tracker:snaps", blob)
+        # Keep only the last 10 snapshots (~5 hours)
         r.ltrim("radar:tracker:snaps", -10, -1)
         logger.info("Task: tracker_snap completed.")
 
