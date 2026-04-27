@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>幣安漲幅雷達</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #00ff88;
+    --green-glow: rgba(0,255,136,0.18);
+    --amber: #ffb800;
+    --red: #ff3b5c;
+    --blue: #4fc3f7;
+    --bg: #080c10;
+    --surface: #0d1318;
+    --surface2: #111820;
+    --border: rgba(0,255,136,0.12);
+    --text: #c8d8d0;
+    --text-dim: #4a6058;
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Barlow Condensed', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--mono); min-height: 100vh; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px); pointer-events: none; z-index: 1000; }
+
+  /* ── TABS ── */
+  .tab-bar { display: flex; border-bottom: 1px solid var(--border); background: rgba(8,12,16,0.95); position: sticky; top: 0; z-index: 200; backdrop-filter: blur(12px); }
+  .tab-btn { flex: 1; max-width: 260px; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 10px; cursor: pointer; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-dim); font-family: var(--mono); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; transition: all 0.2s; white-space: nowrap; }
+  .tab-btn:hover { color: var(--text); background: rgba(255,255,255,0.02); }
+  .tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+  .tab-btn .tab-icon { font-size: 16px; }
+  .tab-badge { background: var(--green-glow); border: 1px solid rgba(0,255,136,0.3); color: var(--green); font-size: 10px; padding: 1px 7px; border-radius: 10px; }
+  .tab-badge.amber { background: rgba(255,184,0,0.12); border-color: rgba(255,184,0,0.3); color: var(--amber); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── HEADER ── */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 10px; }
+  .logo { font-family: var(--display); font-weight: 800; font-size: 22px; color: var(--green); letter-spacing: 2px; }
+  .logo span { color: var(--amber); }
+  .logo small { font-size: 11px; color: var(--text-dim); font-family: var(--mono); font-weight: 300; letter-spacing: 1px; display: block; }
+  .status-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; flex-shrink: 0; }
+  .pulse-dot.idle { background: var(--text-dim); animation: none; }
+  .pulse-dot.loading { background: var(--amber); animation: pulse-a 0.8s infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,255,136,0.4)}50%{box-shadow:0 0 0 8px rgba(0,255,136,0)}}
+  @keyframes pulse-a { 0%,100%{box-shadow:0 0 0 0 rgba(255,184,0,0.4)}50%{box-shadow:0 0 0 6px rgba(255,184,0,0)}}
+  .status-text { font-size: 12px; color: var(--text-dim); }
+  .status-text b { color: var(--text); }
+  .source-tag { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 2px 8px; font-size: 10px; color: var(--text-dim); }
+  .source-tag.ok { border-color: rgba(0,255,136,0.4); color: var(--green); }
+
+  /* countdown */
+  .cring { position: relative; width: 40px; height: 40px; }
+  .cring svg { transform: rotate(-90deg); }
+  .cring .track { fill:none; stroke:var(--surface2); stroke-width:3; }
+  .cring .fill  { fill:none; stroke:var(--green); stroke-width:3; stroke-linecap:round; transition:stroke-dashoffset 1s linear; }
+  .cring-num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--green); }
+  .btn { background:none; border:1px solid var(--border); color:var(--green); padding:6px 14px; font-family:var(--mono); font-size:11px; cursor:pointer; border-radius:3px; letter-spacing:1px; transition:all 0.2s; }
+  .btn:hover { background:var(--green-glow); border-color:var(--green); }
+  .btn:disabled { opacity:0.4; cursor:default; }
+
+  /* ── TOOLBAR ── */
+  .toolbar { display:flex; align-items:center; gap:10px; padding:12px 28px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .stat-chip { display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:6px 14px; font-size:12px; }
+  .stat-chip .lbl { color:var(--text-dim); }
+  .stat-chip .val { color:var(--green); font-size:16px; font-family:var(--display); font-weight:600; }
+  .stat-chip .val.amber { color:var(--amber); }
+  .stat-chip .val.blue { color:var(--blue); }
+  .filter-btns { display:flex; gap:4px; }
+  .fbtn { background:none; border:1px solid var(--border); color:var(--text-dim); padding:4px 11px; font-family:var(--mono); font-size:11px; cursor:pointer; border-radius:3px; transition:all 0.15s; }
+  .fbtn.active,.fbtn:hover { background:var(--green-glow); border-color:var(--green); color:var(--green); }
+  .thr-ctrl { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-dim); }
+  .thr-ctrl input { width:65px; height:28px; background:var(--surface); border:1px solid var(--border); color:var(--green); padding:0 8px; font-family:var(--mono); font-size:13px; border-radius:3px; text-align:center; }
+  .thr-ctrl input:focus { outline:none; border-color:var(--green); }
+
+  main { padding: 20px 28px; }
+  .sec-label { font-size:10px; letter-spacing:3px; color:var(--text-dim); text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+  .sec-label::after { content:''; flex:1; height:1px; background:var(--border); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:10px; margin-bottom:28px; }
+
+  /* ── COIN CARD (Tab1) ── */
+  .coin-card { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:14px 16px; position:relative; overflow:hidden; transition:border-color 0.2s,transform 0.2s; animation:cardIn 0.4s ease both; cursor:default; }
+  .coin-card:hover { border-color:var(--green); transform:translateY(-2px); }
+  @keyframes cardIn { from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)} }
+  .coin-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--green); opacity:0.6; }
+  .coin-card.mega::before { background:linear-gradient(90deg,var(--amber),var(--red)); opacity:1; }
+  .coin-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:8px; }
+  .coin-sym { font-family:var(--display); font-weight:800; font-size:20px; color:#fff; letter-spacing:1px; }
+  .coin-qt  { font-size:10px; color:var(--text-dim); }
+  .badge { font-size:9px; padding:2px 6px; border-radius:2px; letter-spacing:1px; font-weight:600; background:var(--green-glow); color:var(--green); border:1px solid rgba(0,255,136,0.3); }
+  .badge.mega { background:rgba(255,59,92,0.15); color:var(--red); border-color:rgba(255,59,92,0.3); }
+  .coin-price { font-size:14px; color:var(--text); margin-bottom:6px; }
+  .coin-chg { font-family:var(--display); font-weight:800; font-size:30px; color:var(--green); line-height:1; }
+  .coin-chg.mega { color:var(--amber); }
+  .coin-chg .sign { font-size:17px; font-weight:600; }
+  .coin-vol { font-size:10px; color:var(--text-dim); margin-top:8px; }
+  .coin-vol span { color:var(--text); }
+  .spark-bar { position:absolute; bottom:0; left:0; right:0; height:3px; background:var(--surface2); overflow:hidden; }
+  .spark-fill { height:100%; animation:fillBar 1s ease both; }
+  @keyframes fillBar { from{width:0} }
+
+  /* ── TRACKER TABLE (Tab2) ── */
+  .tracker-info { background:var(--surface); border:1px solid rgba(79,195,247,0.2); border-radius:4px; padding:12px 16px; font-size:12px; color:var(--blue); margin-bottom:20px; line-height:1.8; }
+  .tracker-info b { color:#fff; }
+  .tbl-wrap { overflow-x:auto; margin-bottom:28px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; min-width:820px; }
+  thead th { background:var(--surface2); color:var(--text-dim); padding:9px 12px; text-align:left; font-size:11px; letter-spacing:0.5px; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; }
+  thead th:hover { color:var(--text); }
+  thead th.sorted { color:var(--green); }
+  tbody tr { border-bottom:1px solid rgba(255,255,255,0.04); transition:background 0.15s; }
+  tbody tr:hover { background:rgba(0,255,136,0.04); }
+  tbody td { padding:9px 12px; vertical-align:middle; white-space:nowrap; }
+  .sym-cell { font-family:var(--display); font-weight:700; font-size:15px; color:#fff; }
+  .sym-cell small { font-size:10px; color:var(--text-dim); font-family:var(--mono); font-weight:400; }
+  .pct-cell { font-family:var(--display); font-weight:700; font-size:15px; }
+  .pct-cell.up { color:var(--green); }
+  .pct-cell.up.hot { color:var(--amber); }
+  .pct-cell.down { color:var(--red); }
+  .mini-bars { display:flex; align-items:flex-end; gap:2px; height:24px; }
+  .mini-bar { width:10px; border-radius:1px 1px 0 0; min-height:2px; transition:height 0.3s; }
+  .trend-chip { display:inline-block; font-size:9px; padding:2px 7px; border-radius:2px; font-weight:600; letter-spacing:0.5px; }
+  .trend-chip.up   { background:rgba(0,255,136,0.12); color:var(--green); }
+  .trend-chip.hot  { background:rgba(255,184,0,0.15); color:var(--amber); }
+  .trend-chip.down { background:rgba(255,59,92,0.12); color:var(--red); }
+  .trend-chip.new  { background:rgba(79,195,247,0.15); color:var(--blue); }
+  .age-text { color:var(--text-dim); font-size:11px; }
+  .remove-btn { background:none; border:1px solid rgba(255,59,92,0.3); color:var(--red); padding:3px 8px; font-size:10px; border-radius:3px; cursor:pointer; font-family:var(--mono); }
+  .remove-btn:hover { background:rgba(255,59,92,0.1); }
+  .empty-tbl { text-align:center; padding:48px 20px; color:var(--text-dim); font-size:12px; letter-spacing:1px; }
+  .empty-tbl .big { font-family:var(--display); font-size:36px; font-weight:800; color:var(--surface2); margin-bottom:8px; }
+  .chk-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; margin-bottom:20px; }
+  .chk-card { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:12px 14px; display:flex; align-items:center; gap:10px; cursor:pointer; transition:border-color 0.15s; }
+  .chk-card:hover { border-color:var(--green); }
+  .chk-card input { accent-color:var(--green); width:14px; height:14px; cursor:pointer; }
+  .chk-label { font-size:12px; color:var(--text); line-height:1.5; }
+  .chk-label small { color:var(--text-dim); font-size:10px; display:block; }
+
+  /* alert */
+  .alert { border-radius:4px; padding:12px 16px; font-size:12px; margin-bottom:14px; display:none; line-height:1.8; }
+  .alert.show { display:block; }
+  .alert.error { background:rgba(255,59,92,0.08); border:1px solid rgba(255,59,92,0.3); color:#ff8099; }
+  .alert .alt { font-weight:600; margin-bottom:4px; }
+
+  /* log */
+  .log-panel { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:10px 14px; font-size:11px; color:var(--text-dim); max-height:100px; overflow-y:auto; line-height:2; }
+  .log-line { display:flex; gap:10px; }
+  .log-t { color:var(--text-dim); flex-shrink:0; }
+  .log-m { color:var(--text); }
+  .log-m.ok { color:var(--green); }
+  .log-m.err { color:var(--red); }
+  .log-m.warn { color:var(--amber); }
+  .log-m.info { color:var(--blue); }
+
+  .empty-state { text-align:center; padding:48px; color:var(--text-dim); grid-column:1/-1; }
+  .empty-state .big { font-family:var(--display); font-size:42px; font-weight:800; color:var(--surface2); margin-bottom:10px; }
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:var(--surface); } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* ── TAB 3 ── */
+  .t3-info { background:var(--surface); border:1px solid rgba(255,59,92,0.2); border-radius:4px; padding:12px 16px; font-size:12px; color:#ff8099; margin-bottom:20px; line-height:1.8; }
+  .t3-info b { color:#fff; }
+  .param-row { display:flex; align-items:center; gap:16px; padding:12px 28px; border-bottom:1px solid var(--border); flex-wrap:wrap; background:rgba(255,59,92,0.03); }
+  .param-row label { font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:6px; }
+  .param-row input[type=number] { width:70px; height:28px; background:var(--surface); border:1px solid rgba(255,59,92,0.3); color:var(--red); padding:0 8px; font-family:var(--mono); font-size:13px; border-radius:3px; text-align:center; }
+  .param-row input[type=number]:focus { outline:none; border-color:var(--red); }
+  .param-row .param-unit { color:var(--text-dim); font-size:11px; }
+  .fall-card { background:var(--surface); border:1px solid rgba(255,59,92,0.25); border-radius:4px; padding:14px 16px; position:relative; overflow:hidden; animation:cardIn 0.4s ease both; }
+  .fall-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--red),var(--amber)); }
+  .fall-card:hover { border-color:var(--red); transform:translateY(-2px); transition:transform 0.2s,border-color 0.2s; }
+  .fall-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:8px; }
+  .fall-sym { font-family:var(--display); font-weight:800; font-size:20px; color:#fff; }
+  .fall-qt  { font-size:10px; color:var(--text-dim); }
+  .rank-badge { font-size:10px; padding:2px 8px; border-radius:2px; letter-spacing:0.5px; font-weight:700; }
+  .rank-badge.was-top { background:rgba(255,184,0,0.2); color:var(--amber); border:1px solid rgba(255,184,0,0.4); }
+  .rank-badge.now-rank { background:rgba(255,59,92,0.15); color:var(--red); border:1px solid rgba(255,59,92,0.3); }
+  .fall-row { display:flex; align-items:center; gap:12px; margin:6px 0; font-size:12px; }
+  .fall-arrow { font-size:18px; color:var(--red); }
+  .fall-stat { display:flex; flex-direction:column; }
+  .fall-stat .fl { font-size:10px; color:var(--text-dim); }
+  .fall-stat .fv { font-family:var(--display); font-weight:700; font-size:15px; }
+  .fall-stat .fv.amber { color:var(--amber); }
+  .fall-stat .fv.red { color:var(--red); }
+  .fall-time { font-size:10px; color:var(--text-dim); margin-top:6px; }
+  .fall-mini { display:flex; gap:2px; align-items:flex-end; height:20px; margin-top:8px; }
+  .fall-mini-bar { width:8px; border-radius:1px 1px 0 0; min-height:2px; }
+  .t3-tbl-wrap { overflow-x:auto; margin-bottom:28px; }
+  .t3-table { width:100%; border-collapse:collapse; font-size:12px; min-width:900px; }
+  .t3-table thead th { background:var(--surface2); color:var(--text-dim); padding:9px 12px; text-align:left; font-size:11px; letter-spacing:0.5px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .t3-table tbody tr { border-bottom:1px solid rgba(255,255,255,0.04); transition:background 0.15s; }
+  .t3-table tbody tr:hover { background:rgba(255,59,92,0.04); }
+  .t3-table tbody td { padding:9px 12px; vertical-align:middle; white-space:nowrap; }
+  .rank-timeline { display:flex; gap:4px; align-items:center; }
+  .rank-dot { width:26px; height:26px; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; font-family:var(--display); flex-shrink:0; }
+  .rank-dot.top1 { background:rgba(255,184,0,0.25); color:var(--amber); border:1px solid rgba(255,184,0,0.4); }
+  .rank-dot.fallen { background:rgba(255,59,92,0.15); color:var(--red); border:1px solid rgba(255,59,92,0.3); }
+  .rank-dot.mid { background:rgba(255,255,255,0.05); color:var(--text-dim); border:1px solid var(--border); }
+  .rank-arrow-sep { color:var(--text-dim); font-size:10px; }
+</style>
+</head>
+<body>
+
+<!-- TAB BAR -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('t1',this)">
+    <span class="tab-icon">🚀</span> 24H 漲幅雷達
+    <span class="tab-badge" id="badge1">--</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('t2',this)">
+    <span class="tab-icon">📈</span> 2H 追蹤器
+    <span class="tab-badge amber" id="badge2">--</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('t3',this)">
+    <span class="tab-icon">🎯</span> 排名墜落偵測
+    <span class="tab-badge" id="badge3" style="background:rgba(255,59,92,0.12);border-color:rgba(255,59,92,0.3);color:var(--red)">--</span>
+  </button>
+</div>
+
+<!-- ══════════ TAB 1 ══════════ -->
+<div class="tab-content active" id="t1">
+  <header>
+    <div>
+      <div class="logo">MOON<span>RADAR</span> <span style="color:var(--text-dim);font-size:14px;font-weight:300">24H</span></div>
+      <small class="logo">每 5 分鐘掃描幣安全市場 24H 漲幅</small>
+    </div>
+    <div class="status-row">
+      <div class="pulse-dot idle" id="p1-pulse"></div>
+      <span class="status-text" id="p1-status">等待掃描...</span>
+      <span class="source-tag" id="p1-src">--</span>
+      <div class="cring">
+        <svg width="40" height="40" viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16"/><circle class="fill" id="r1-fill" cx="20" cy="20" r="16" stroke-dasharray="100.5" stroke-dashoffset="100.5"/></svg>
+        <div class="cring-num" id="r1-num">--</div>
+      </div>
+      <button class="btn" id="r1-btn" onclick="triggerScan1()">立即掃描</button>
+    </div>
+  </header>
+  <div class="toolbar">
+    <div class="stat-chip"><span class="lbl">掃描幣數</span><span class="val" id="t1-total">--</span></div>
+    <div class="stat-chip"><span class="lbl">符合數量</span><span class="val amber" id="t1-hits">--</span></div>
+    <div class="stat-chip"><span class="lbl">更新時間</span><span class="val" id="t1-time" style="font-size:13px;color:var(--text)">--</span></div>
+    <div class="filter-btns">
+      <button class="fbtn active" onclick="setF1('all',this)">全部</button>
+      <button class="fbtn" onclick="setF1('USDT',this)">USDT</button>
+      <button class="fbtn" onclick="setF1('BTC',this)">BTC</button>
+      <button class="fbtn" onclick="setF1('ETH',this)">ETH</button>
+      <button class="fbtn" onclick="setF1('BNB',this)">BNB</button>
+    </div>
+    <div class="thr-ctrl">門檻 <input type="number" id="thr1" value="100" min="1"> %</div>
+  </div>
+  <main>
+    <div class="alert error" id="t1-err"></div>
+    <div class="sec-label" id="t1-label">掃描結果</div>
+    <div class="grid" id="t1-grid"></div>
+    <div class="sec-label">掃描日誌</div>
+    <div class="log-panel" id="t1-log"></div>
+  </main>
+</div>
+
+<!-- ══════════ TAB 2 ══════════ -->
+<div class="tab-content" id="t2">
+  <header>
+    <div>
+      <div class="logo">MOON<span>TRACKER</span> <span style="color:var(--blue);font-size:14px;font-weight:300">2H</span></div>
+      <small class="logo" style="color:rgba(79,195,247,0.6)">每 30 分鐘快照，追蹤 2 小時內漲幅 &gt; 20% 的幣</small>
+    </div>
+    <div class="status-row">
+      <div class="pulse-dot idle" id="p2-pulse"></div>
+      <span class="status-text" id="p2-status">等待快照...</span>
+      <span class="source-tag" id="p2-src">--</span>
+      <div class="cring">
+        <svg width="40" height="40" viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16"/><circle class="fill" id="r2-fill" cx="20" cy="20" r="16" style="stroke:var(--blue)" stroke-dasharray="100.5" stroke-dashoffset="100.5"/></svg>
+        <div class="cring-num" id="r2-num" style="color:var(--blue)">--</div>
+      </div>
+      <button class="btn" style="color:var(--blue);border-color:rgba(79,195,247,0.3)" id="r2-btn" onclick="triggerScan2()">立即快照</button>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="stat-chip"><span class="lbl">追蹤幣種</span><span class="val blue" id="t2-tracking">0</span></div>
+    <div class="stat-chip"><span class="lbl">2H 漲 &gt;20%</span><span class="val amber" id="t2-hits">0</span></div>
+    <div class="stat-chip"><span class="lbl">快照次數</span><span class="val blue" id="t2-snaps">0</span></div>
+    <div class="stat-chip"><span class="lbl">上次快照</span><span class="val" id="t2-time" style="font-size:13px;color:var(--text)">--</span></div>
+    <div class="thr-ctrl" style="margin-left:auto;">2H門檻 <input type="number" id="thr2" value="20" min="1"> %</div>
+  </div>
+
+  <main>
+    <div class="tracker-info">
+      📌 <b>運作方式：</b>每 30 分鐘對全市場取一次快照，並與 2 小時前（4 個快照前）的價格比較，篩選出在這段時間內漲幅超過門檻的幣種。<br>
+      ⏱ <b>首次需要等待 2 小時</b>才能看到完整比較結果，但下方會即時顯示每次快照的累積漲幅趨勢。
+    </div>
+
+    <div class="alert error" id="t2-err"></div>
+
+    <div class="sec-label">2H 漲幅排行 <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">（目前快照與 2H 前快照比較）</span></div>
+    <div class="tbl-wrap">
+      <table id="t2-table">
+        <thead>
+          <tr>
+            <th onclick="sortT2('sym')">幣種 ↕</th>
+            <th onclick="sortT2('chg2h')" class="sorted">2H 漲幅 ↓</th>
+            <th onclick="sortT2('chg30')" >30分漲幅 ↕</th>
+            <th>趨勢圖</th>
+            <th>當前價</th>
+            <th onclick="sortT2('vol')">成交量 ↕</th>
+            <th>首次偵測</th>
+            <th>狀態</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="t2-body">
+          <tr><td colspan="9"><div class="empty-tbl"><div class="big">⏳</div>等待第一次快照完成...</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sec-label">快照歷史</div>
+    <div id="snap-history" style="font-size:11px;color:var(--text-dim);margin-bottom:20px;line-height:2;">尚無快照資料</div>
+
+    <div class="sec-label">追蹤日誌</div>
+    <div class="log-panel" id="t2-log"></div>
+  </main>
+</div>
+
+<!-- ══════════ TAB 3 ══════════ -->
+<div class="tab-content" id="t3">
+  <header>
+    <div>
+      <div class="logo">MOON<span>FALL</span> <span style="color:var(--red);font-size:14px;font-weight:300">RANK DROP</span></div>
+      <small class="logo" style="color:rgba(255,59,92,0.6)">偵測曾奪冠但跌出榜外的幣種</small>
+    </div>
+    <div class="status-row">
+      <div class="pulse-dot idle" id="p3-pulse"></div>
+      <span class="status-text" id="p3-status">等待快照...</span>
+      <span class="source-tag" id="p3-src">--</span>
+      <div class="cring">
+        <svg width="40" height="40" viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16"/><circle class="fill" id="r3-fill" cx="20" cy="20" r="16" style="stroke:var(--red)" stroke-dasharray="100.5" stroke-dashoffset="100.5"/></svg>
+        <div class="cring-num" id="r3-num" style="color:var(--red)">--</div>
+      </div>
+      <button class="btn" style="color:var(--red);border-color:rgba(255,59,92,0.3)" id="r3-btn" onclick="triggerScan3()">立即快照</button>
+    </div>
+  </header>
+
+  <div class="param-row">
+    <label>⏱ 快照間隔 <input type="number" id="t3-interval" value="60" min="1" max="1440" onchange="applyT3Params()"> <span class="param-unit">分鐘</span></label>
+    <label>🕐 追蹤時長 <input type="number" id="t3-window" value="72" min="1" max="720" onchange="applyT3Params()"> <span class="param-unit">小時</span></label>
+    <label>🥇 曾達前 <input type="number" id="t3-top-thresh" value="1" min="1" max="50" onchange="applyT3Params()"> <span class="param-unit">名</span></label>
+    <label>📉 跌至第 <input type="number" id="t3-drop-thresh" value="4" min="2" max="200" onchange="applyT3Params()"> <span class="param-unit">名以外才警示</span></label>
+    <button class="btn" style="color:var(--red);border-color:rgba(255,59,92,0.3);margin-left:auto" onclick="clearT3()">清除記錄</button>
+  </div>
+
+  <div class="toolbar">
+    <div class="stat-chip"><span class="lbl">快照次數</span><span class="val" style="color:var(--red)" id="t3-snaps">0</span></div>
+    <div class="stat-chip"><span class="lbl">監測幣種</span><span class="val amber" id="t3-watch">0</span></div>
+    <div class="stat-chip"><span class="lbl">墜落警報</span><span class="val" style="color:var(--red)" id="t3-alerts">0</span></div>
+    <div class="stat-chip"><span class="lbl">上次快照</span><span class="val" id="t3-time" style="font-size:13px;color:var(--text)">--</span></div>
+  </div>
+
+  <main>
+    <div class="t3-info" id="t3-info-box">
+      🎯 <b>運作方式：</b>每 <span id="t3-info-interval">60</span> 分鐘取一次 24H 漲幅排名快照，追蹤在 <span id="t3-info-window">72</span> 小時內曾進入前 <span id="t3-info-top">1</span> 名、但目前已跌至第 <span id="t3-info-drop">4</span> 名以外（含跌出前 200 名）的幣種。<br>
+      ⚡ <b>警示意義：</b>短期強勢幣回落通常代表動能衰竭或主力出貨，可作為風險訊號或反向指標參考。
+    </div>
+    <div class="alert error" id="t3-err"></div>
+
+    <div class="sec-label" id="t3-alert-label">墜落警報 <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">（曾達前 N 名，現已跌出門檻）</span></div>
+    <div class="grid" id="t3-grid">
+      <div class="empty-state" style="grid-column:1/-1;padding:32px;">
+        <div class="big">🎯</div>
+        <p>等待快照累積中...<br><small style="font-size:11px;">首次快照後開始監測排名變化</small></p>
+      </div>
+    </div>
+
+    <div class="sec-label">完整追蹤記錄 <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">（所有曾進入前 N 名的幣）</span></div>
+    <div class="t3-tbl-wrap">
+      <table class="t3-table">
+        <thead>
+          <tr>
+            <th>幣種</th>
+            <th>最佳名次</th>
+            <th>目前名次</th>
+            <th>當前 24H%</th>
+            <th>最高 24H%</th>
+            <th>名次歷程</th>
+            <th>首次進榜</th>
+            <th>狀態</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="t3-body">
+          <tr><td colspan="9"><div class="empty-tbl"><div class="big">⏳</div>等待第一次快照...</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sec-label">偵測日誌</div>
+    <div class="log-panel" id="t3-log"></div>
+  </main>
+</div>
+
+
+<script>
+// ══════════════════════════════════════════
+//  CONFIG & STATE
+// ══════════════════════════════════════════
+const POLL_INT = 15 * 1000; // Poll backend every 15 seconds
+const CIRC = 100.53;
+
+let allData1 = [], filter1 = 'all';
+let scanCount1 = 0;
+let t2SortKey = 'chg2h', t2SortAsc = false;
+
+// Helpers
+const fmtMoney = n => '$ ' + parseFloat(n).toLocaleString('en-US',{maximumSignificantDigits:6});
+const fmtPct   = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+const fmtVol   = v => v >= 1e9?(v/1e9).toFixed(2)+'B': v >= 1e6?(v/1e6).toFixed(1)+'M': v >= 1e3?(v/1e3).toFixed(0)+'K': v.toFixed(0);
+const fmtTime  = t => new Date(t).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+const now      = () => Date.now();
+
+function log(panelId, msg, type='') {
+  const p = document.getElementById(panelId);
+  const t = new Date().toLocaleTimeString('zh-TW');
+  const d = document.createElement('div');
+  d.className = 'log-line';
+  d.innerHTML = `<span class="log-t">${t}</span><span class="log-m ${type}">${msg}</span>`;
+  p.insertBefore(d, p.firstChild);
+  while(p.children.length > 60) p.removeChild(p.lastChild);
+}
+
+function setPulse(id, state) { document.getElementById(id).className = 'pulse-dot '+(state||''); }
+
+function updateRing(fillId, numId, interval, nextTs) {
+  const rem = Math.max(0, nextTs - now());
+  const prog = (interval - rem) / interval;
+  document.getElementById(fillId).style.strokeDashoffset = CIRC * (1 - prog);
+  const s = Math.ceil(rem/1000);
+  document.getElementById(numId).textContent = s >= 60 ? Math.ceil(s/60)+'m' : s+'s';
+}
+
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ══════════════════════════════════════════
+//  BACKEND SYNC
+// ══════════════════════════════════════════
+let nextPoll = now() + POLL_INT;
+let pollTimer = null;
+let lastLatestTs = 0;
+let lastTrackerSnapsLen = 0;
+let lastFallSnapsLen = 0;
+
+// Expose these for manual UI interactions
+let trackerMap = {};
+let t3Map = {};
+let snapshots = [];
+let t3Snaps = [];
+let t3SnapCount = 0;
+
+async function fetchBackendData() {
+  setPulse('p1-pulse','loading');
+  setPulse('p2-pulse','loading');
+  setPulse('p3-pulse','loading');
+  
+  try {
+    const r = await fetch('/api/data');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    
+    // Process Tab 1 (Latest 24H)
+    if (data.latest && data.latest.ts !== lastLatestTs) {
+      lastLatestTs = data.latest.ts;
+      processTab1(data.latest.data, data.latest.src || 'Backend API', data.latest.ts);
+    }
+    
+    // Process Tab 2 (Tracker Snaps)
+    if (data.tracker_snaps && data.tracker_snaps.length !== lastTrackerSnapsLen) {
+      lastTrackerSnapsLen = data.tracker_snaps.length;
+      processTab2(data.tracker_snaps);
+    }
+    
+    // Process Tab 3 (Fall Snaps)
+    if (data.fall_snaps && data.fall_snaps.length !== lastFallSnapsLen) {
+      lastFallSnapsLen = data.fall_snaps.length;
+      processTab3(data.fall_snaps);
+    }
+    
+    setPulse('p1-pulse','');
+    setPulse('p2-pulse','');
+    setPulse('p3-pulse','');
+  } catch(e) {
+    setPulse('p1-pulse','idle');
+    setPulse('p2-pulse','idle');
+    setPulse('p3-pulse','idle');
+    console.error('Fetch backend failed', e);
+  } finally {
+    scheduleNextPoll();
+  }
+}
+
+function scheduleNextPoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  nextPoll = now() + POLL_INT;
+  pollTimer = setInterval(() => {
+    updateRing('r1-fill','r1-num', POLL_INT, nextPoll);
+    updateRing('r2-fill','r2-num', POLL_INT, nextPoll);
+    updateRing('r3-fill','r3-num', POLL_INT, nextPoll);
+    if (now() >= nextPoll) { clearInterval(pollTimer); fetchBackendData(); }
+  }, 1000);
+}
+
+function triggerScan1() { if(pollTimer)clearInterval(pollTimer); fetchBackendData(); }
+function triggerScan2() { if(pollTimer)clearInterval(pollTimer); fetchBackendData(); }
+function triggerScan3() { if(pollTimer)clearInterval(pollTimer); fetchBackendData(); }
+
+// ══════════════════════════════════════════
+//  TAB 1
+// ══════════════════════════════════════════
+function processTab1(data, src, ts) {
+  allData1 = data;
+  scanCount1++;
+  document.getElementById('p1-src').textContent = src;
+  document.getElementById('p1-src').className = 'source-tag ok';
+  const thr = parseFloat(document.getElementById('thr1').value)||100;
+  const hits = data.filter(d => parseFloat(d.priceChangePercent) >= thr);
+  document.getElementById('t1-total').textContent = data.length.toLocaleString();
+  document.getElementById('t1-hits').textContent  = hits.length;
+  document.getElementById('badge1').textContent   = hits.length;
+  document.getElementById('t1-time').textContent  = fmtTime(ts);
+  renderGrid1(hits);
+  document.getElementById('p1-status').innerHTML = `最新後端資料 (第 <b>${scanCount1}</b> 次)`;
+  log('t1-log', `同步完成 [${src}]：${data.length} 對，${hits.length} 個≥${thr}%`, 'ok');
+}
+
+function renderGrid1(hits) {
+  const thr = parseFloat(document.getElementById('thr1').value)||100;
+  let list = hits;
+  if (filter1 !== 'all') list = hits.filter(d => d.symbol.endsWith(filter1));
+  list.sort((a,b) => parseFloat(b.priceChangePercent)-parseFloat(a.priceChangePercent));
+  document.getElementById('t1-label').textContent = `漲幅 ≥ ${thr}%　共 ${list.length} 個`;
+  const grid = document.getElementById('t1-grid');
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="big">0</div><p>目前無符合條件的幣種<br>可調低門檻或等下次掃描</p></div>';
+    return;
+  }
+  grid.innerHTML = '';
+  list.forEach((d,i) => {
+    const pct = parseFloat(d.priceChangePercent);
+    const mega = pct >= 500;
+    const base = d.symbol.replace(/(USDT|BUSD|FDUSD|TUSD|USDC|BTC|ETH|BNB)$/,'');
+    const quote = d.symbol.slice(base.length);
+    const price = parseFloat(d.lastPrice);
+    const vol = parseFloat(d.quoteVolume);
+    const fill = Math.min(pct/Math.max(pct,1000)*100,100);
+    const c = document.createElement('div');
+    c.className = 'coin-card'+(mega?' mega':'');
+    c.style.animationDelay = (i*20)+'ms';
+    c.innerHTML = `
+      <div class="coin-header">
+        <div><div class="coin-sym">${base}</div><div class="coin-qt">/${quote}</div></div>
+        <div class="badge${mega?' mega':''}">${mega?'MEGA':'MOON'}</div>
+      </div>
+      <div class="coin-price">${fmtMoney(price)}</div>
+      <div class="coin-chg${mega?' mega':''}">+${pct.toFixed(2)}<span class="sign">%</span></div>
+      <div class="coin-vol">24H 量 <span>${fmtVol(vol)} ${quote}</span></div>
+      <div class="spark-bar"><div class="spark-fill" style="width:${fill}%;background:${mega?'var(--amber)':'var(--green)'}"></div></div>`;
+    grid.appendChild(c);
+  });
+}
+
+function setF1(f, btn) {
+  filter1 = f;
+  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (allData1.length) {
+    const thr = parseFloat(document.getElementById('thr1').value)||100;
+    renderGrid1(allData1.filter(d => parseFloat(d.priceChangePercent) >= thr));
+  }
+}
+
+// ══════════════════════════════════════════
+//  TAB 2
+// ══════════════════════════════════════════
+function processTab2(snaps) {
+  trackerMap = {};
+  snapshots = [];
+  const SNAP_KEEP = 4;
+  const thr2 = parseFloat(document.getElementById('thr2').value)||20;
+  
+  for (const snap of snaps) {
+    snapshots.push(snap);
+    if (snapshots.length > SNAP_KEEP + 1) snapshots.shift();
+    
+    const ts = snap.ts;
+    const prices = snap.prices;
+    const oldSnap = snapshots.length >= 2 ? snapshots[Math.max(0, snapshots.length - SNAP_KEEP - 1)] : null;
+    const prevSnap = snapshots.length >= 2 ? snapshots[snapshots.length - 2] : null;
+
+    Object.keys(prices).forEach(sym => {
+      const curP = prices[sym].price;
+      const prev30 = prevSnap?.prices[sym]?.price;
+      const chg30 = prev30 ? (curP - prev30)/prev30*100 : null;
+      const old2h = oldSnap?.prices[sym]?.price;
+      const chg2h = old2h ? (curP - old2h)/old2h*100 : null;
+
+      if (!trackerMap[sym]) {
+        if (chg2h !== null && chg2h >= thr2) {
+          trackerMap[sym] = { firstTs: ts, history: [], manualKeep: false };
+        } else if (chg30 !== null && chg30 >= thr2/2) {
+          trackerMap[sym] = { firstTs: ts, history: [], manualKeep: false };
+        }
+      }
+      if (trackerMap[sym]) {
+        trackerMap[sym].latestPrice = curP;
+        trackerMap[sym].latestVol   = prices[sym].vol;
+        trackerMap[sym].chg30 = chg30;
+        trackerMap[sym].chg2h = chg2h;
+        if (chg30 !== null) trackerMap[sym].history.push(chg30);
+        if (trackerMap[sym].history.length > 8) trackerMap[sym].history.shift();
+      }
+    });
+
+    const dropAge = 4 * 60 * 60 * 1000;
+    Object.keys(trackerMap).forEach(sym => {
+      const t = trackerMap[sym];
+      const aged = (now() - t.firstTs) > dropAge;
+      const stillHot = t.chg2h !== null && t.chg2h >= thr2;
+      if (aged && !stillHot && !t.manualKeep) delete trackerMap[sym];
+    });
+  }
+  
+  const hitCount = Object.values(trackerMap).filter(t => t.chg2h !== null && t.chg2h >= thr2).length;
+  document.getElementById('t2-tracking').textContent = Object.keys(trackerMap).length;
+  document.getElementById('t2-hits').textContent     = hitCount;
+  document.getElementById('badge2').textContent      = hitCount || '--';
+  document.getElementById('t2-snaps').textContent    = snaps.length;
+  if(snaps.length > 0) document.getElementById('t2-time').textContent = fmtTime(snaps[snaps.length-1].ts);
+  document.getElementById('p2-src').textContent      = 'Backend API';
+  document.getElementById('p2-src').className        = 'source-tag ok';
+  document.getElementById('p2-status').innerHTML = `後端同步 (共 <b>${snaps.length}</b> 個歷史快照)`;
+  
+  renderT2();
+  renderSnapHistory();
+}
+
+function renderT2() {
+  const thr2 = parseFloat(document.getElementById('thr2').value)||20;
+  const tbody = document.getElementById('t2-body');
+  let rows = Object.entries(trackerMap).map(([sym, t]) => ({ sym, ...t }));
+  rows.sort((a, b) => {
+    let va = t2SortKey === 'sym' ? a.sym : t2SortKey === 'chg30' ? (a.chg30||0) : t2SortKey === 'vol' ? (a.latestVol||0) : (a.chg2h||0);
+    let vb = t2SortKey === 'sym' ? b.sym : t2SortKey === 'chg30' ? (b.chg30||0) : t2SortKey === 'vol' ? (b.latestVol||0) : (b.chg2h||0);
+    if (t2SortKey === 'sym') return t2SortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return t2SortAsc ? va-vb : vb-va;
+  });
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-tbl"><div class="big">⏳</div>等待快照資料累積中...<br><small style="font-size:11px;">首次需 2 小時（4 次快照）才能顯示 2H 漲幅</small></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  rows.forEach(({ sym, chg2h, chg30, latestPrice, latestVol, firstTs, history, manualKeep }) => {
+    const base  = sym.replace(/(USDT|BUSD|FDUSD|TUSD|USDC|BTC|ETH|BNB)$/,'');
+    const quote = sym.slice(base.length);
+    const is2hHot = chg2h !== null && chg2h >= thr2;
+    const isMega  = chg2h !== null && chg2h >= thr2*5;
+
+    const maxH = Math.max(...(history||[0]).map(Math.abs), 1);
+    const miniBars = (history||[]).map(v => {
+      const h = Math.max(Math.abs(v)/maxH*20,2).toFixed(0);
+      const col = v >= thr2 ? 'var(--amber)' : v >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<div class="mini-bar" style="height:${h}px;background:${col};"></div>`;
+    }).join('');
+
+    let trendLabel = '', trendClass = '';
+    if (isMega) { trendLabel='🔥 MEGA'; trendClass='hot'; }
+    else if (is2hHot) { trendLabel='↑ 達標'; trendClass='up'; }
+    else if (chg2h === null) { trendLabel='◎ 監測中'; trendClass='new'; }
+    else if (chg2h < 0) { trendLabel='↓ 回落'; trendClass='down'; }
+    else { trendLabel='~ 未達標'; trendClass='new'; }
+
+    const age = Math.floor((now()-firstTs)/60000);
+    const ageStr = age < 60 ? age+'分鐘前' : Math.floor(age/60)+'h'+age%60+'m前';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><div class="sym-cell">${base}<small>/${quote}</small></div></td>
+      <td><div class="pct-cell ${is2hHot?(isMega?'up hot':'up'):(chg2h!==null&&chg2h<0?'down':'')}">
+        ${chg2h !== null ? fmtPct(chg2h) : '—'}
+      </div></td>
+      <td><div class="pct-cell ${chg30!==null?(chg30>=0?'up':'down'):''}">
+        ${chg30 !== null ? fmtPct(chg30) : '—'}
+      </div></td>
+      <td><div class="mini-bars">${miniBars||'<span style="color:var(--text-dim);font-size:10px">累積中</span>'}</div></td>
+      <td style="color:var(--text)">${latestPrice ? (latestPrice<0.0001?latestPrice.toExponential(3):latestPrice.toLocaleString('en-US',{maximumSignificantDigits:5})) : '—'}</td>
+      <td style="color:var(--text-dim)">${latestVol ? fmtVol(latestVol)+' '+quote : '—'}</td>
+      <td class="age-text">${ageStr}</td>
+      <td><span class="trend-chip ${trendClass}">${trendLabel}</span></td>
+      <td><button class="remove-btn" onclick="removeSym('${sym}')">移除</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function removeSym(sym) { delete trackerMap[sym]; renderT2(); log('t2-log', `已手動移除 ${sym}`, 'warn'); }
+function sortT2(key) {
+  if (t2SortKey === key) t2SortAsc = !t2SortAsc;
+  else { t2SortKey = key; t2SortAsc = key === 'sym'; }
+  document.querySelectorAll('#t2-table thead th').forEach(th => th.classList.remove('sorted'));
+  renderT2();
+}
+function renderSnapHistory() {
+  const el = document.getElementById('snap-history');
+  if (!snapshots.length) { el.textContent = '尚無快照資料'; return; }
+  el.innerHTML = snapshots.slice().reverse().map((s,i) =>
+    `<span style="margin-right:16px;color:${i===0?'var(--green)':'var(--text-dim)'}">
+      ${i===0?'▶ 最新':'  '}  ${new Date(s.ts).toLocaleTimeString('zh-TW')}
+      <span style="color:var(--text-dim)"> (${Object.keys(s.prices).length} 個交易對)</span>
+    </span><br>`
+  ).join('');
+}
+
+// ══════════════════════════════════════════
+//  TAB 3
+// ══════════════════════════════════════════
+let t3INT = 60 * 60 * 1000;
+function getT3Params() {
+  const intMin  = Math.max(1, parseInt(document.getElementById('t3-interval').value) || 60);
+  const winH    = Math.max(1, parseInt(document.getElementById('t3-window').value) || 72);
+  const topN    = Math.max(1, parseInt(document.getElementById('t3-top-thresh').value) || 1);
+  const dropN   = Math.max(2, parseInt(document.getElementById('t3-drop-thresh').value) || 4);
+  return { intMin, winH, topN, dropN };
+}
+function applyT3Params() {
+  const { intMin, winH, topN, dropN } = getT3Params();
+  t3INT = intMin * 60 * 1000;
+  document.getElementById('t3-info-interval').textContent = intMin;
+  document.getElementById('t3-info-window').textContent   = winH;
+  document.getElementById('t3-info-top').textContent      = topN;
+  document.getElementById('t3-info-drop').textContent     = dropN;
+  renderT3();
+}
+
+function processTab3(snaps) {
+  t3Map = {};
+  t3Snaps = [];
+  t3SnapCount = snaps.length;
+  const { intMin, winH, topN, dropN } = getT3Params();
+  const windowMs = winH * 60 * 60 * 1000;
+  
+  for (const snap of snaps) {
+    const ts = snap.ts;
+    const sorted = snap.ranked;
+    t3Snaps.push(snap);
+    t3Snaps = t3Snaps.filter(s => ts - s.ts <= windowMs + intMin * 60 * 1000 * 2);
+    
+    sorted.forEach(({ sym, pct, rank, price, vol }) => {
+      if (!t3Map[sym]) {
+        if (rank <= topN) {
+          t3Map[sym] = { firstTs: ts, bestRank: rank, peakPct: pct, rankHistory: [], alertedFall: false, latestPrice: price, latestVol: vol };
+        }
+      }
+      if (t3Map[sym]) {
+        const e = t3Map[sym];
+        if (rank < e.bestRank) e.bestRank = rank;
+        if (pct > e.peakPct) e.peakPct = pct;
+        e.rankHistory.push({ ts, rank, pct });
+        if (e.rankHistory.length > 200) e.rankHistory.shift();
+        e.latestRank = rank;
+        e.latestPct  = pct;
+        e.latestPrice = price;
+        e.latestVol   = vol;
+        e.lastSeenTs  = ts;
+      }
+    });
+
+    const seenSyms = new Set(sorted.map(d => d.sym));
+    Object.keys(t3Map).forEach(sym => {
+      const e = t3Map[sym];
+      if (!seenSyms.has(sym) && e.lastSeenTs && ts - e.lastSeenTs < intMin * 60 * 1000 * 1.5) {
+        e.rankHistory.push({ ts, rank: 999, pct: null });
+        if (e.rankHistory.length > 200) e.rankHistory.shift();
+        e.latestRank = 999;
+        e.latestPct  = null;
+      }
+    });
+
+    Object.keys(t3Map).forEach(sym => {
+      const e = t3Map[sym];
+      if (e.lastSeenTs && ts - e.lastSeenTs > windowMs) delete t3Map[sym];
+    });
+  }
+  
+  const alerts = Object.values(t3Map).filter(e => e.bestRank <= topN && (e.latestRank === undefined || e.latestRank >= dropN)).length;
+  document.getElementById('t3-snaps').textContent  = snaps.length;
+  document.getElementById('t3-watch').textContent  = Object.keys(t3Map).length;
+  document.getElementById('t3-alerts').textContent = alerts;
+  document.getElementById('badge3').textContent    = alerts || '--';
+  if (snaps.length > 0) document.getElementById('t3-time').textContent = fmtTime(snaps[snaps.length-1].ts);
+  document.getElementById('p3-src').textContent    = 'Backend API';
+  document.getElementById('p3-src').className      = 'source-tag ok';
+  document.getElementById('p3-status').innerHTML = `後端同步 (共 <b>${snaps.length}</b> 個歷史快照)`;
+  
+  renderT3();
+}
+
+function renderT3() {
+  const { topN, dropN, winH } = getT3Params();
+  const entries = Object.entries(t3Map).map(([sym, e]) => ({ sym, ...e }));
+  const fallen  = entries.filter(e => e.bestRank <= topN && (e.latestRank === undefined || e.latestRank >= dropN));
+  const all     = entries.filter(e => e.bestRank <= topN);
+
+  const grid = document.getElementById('t3-grid');
+  document.getElementById('t3-alert-label').innerHTML = `墜落警報 <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">（曾達前 ${topN} 名，現已跌至第 ${dropN} 名以外）</span>`;
+
+  if (!fallen.length) {
+    if (t3SnapCount === 0) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:32px;"><div class="big">🎯</div><p>等待快照累積中...<br><small style="font-size:11px;">首次快照後開始監測排名變化</small></p></div>';
+    } else {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:32px;"><div class="big">✅</div><p>目前無墜落警報<br><small style="font-size:11px;">曾進入前 ' + topN + ' 名的幣種均維持在第 ' + (dropN-1) + ' 名以內</small></p></div>';
+    }
+  } else {
+    grid.innerHTML = '';
+    fallen.sort((a, b) => a.bestRank - b.bestRank).forEach((e, i) => {
+      const base  = e.sym.replace(/(USDT|BUSD|FDUSD|TUSD|USDC|BTC|ETH|BNB)$/, '');
+      const quote = e.sym.slice(base.length);
+      const rankNow = e.latestRank === 999 ? '200+' : (e.latestRank || '?');
+      const rankDelta = (e.latestRank && e.latestRank !== 999) ? e.latestRank - e.bestRank : '—';
+      const pctNow = e.latestPct !== null && e.latestPct !== undefined ? fmtPct(e.latestPct) : '—';
+      const pctPeak = fmtPct(e.peakPct);
+      const age = Math.floor((now() - e.firstTs) / 60000);
+      const ageStr = age < 60 ? age + '分鐘前' : Math.floor(age/60) + 'h' + age%60 + 'm前';
+
+      const recentHistory = e.rankHistory.slice(-8);
+      const maxRankDisplay = 50;
+      const miniDots = recentHistory.map(h => {
+        const r = Math.min(h.rank, maxRankDisplay);
+        const heightPct = Math.max(4, Math.round((1 - (r - 1) / (maxRankDisplay - 1)) * 100));
+        const col = h.rank <= topN ? 'var(--amber)' : h.rank < dropN ? 'var(--green)' : 'var(--red)';
+        return `<div class="fall-mini-bar" style="height:${heightPct}%;background:${col};flex:1;"></div>`;
+      }).join('');
+
+      const card = document.createElement('div');
+      card.className = 'fall-card';
+      card.style.animationDelay = (i * 30) + 'ms';
+      card.innerHTML = `
+        <div class="fall-header">
+          <div><div class="fall-sym">${base}</div><div class="fall-qt">/${quote}</div></div>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+            <span class="rank-badge was-top">曾 #${e.bestRank}</span>
+            <span class="rank-badge now-rank">現 #${rankNow}</span>
+          </div>
+        </div>
+        <div class="fall-row">
+          <div class="fall-stat"><span class="fl">最高漲幅</span><span class="fv amber">${pctPeak}</span></div>
+          <div class="fall-arrow">→</div>
+          <div class="fall-stat"><span class="fl">當前漲幅</span><span class="fv red">${pctNow}</span></div>
+          ${rankDelta !== '—' ? `<div style="margin-left:auto;font-size:10px;color:var(--red)">▼ ${rankDelta} 位</div>` : ''}
+        </div>
+        <div class="fall-mini" style="height:28px;">${miniDots}</div>
+        <div class="fall-time">首次進入前 ${topN} 名：${ageStr}</div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  const tbody = document.getElementById('t3-body');
+  if (!all.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-tbl"><div class="big">⏳</div>${t3SnapCount ? '尚無幣種曾進入前 '+topN+' 名' : '等待第一次快照...'}</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = '';
+  all.sort((a, b) => a.bestRank - b.bestRank).forEach(e => {
+    const base  = e.sym.replace(/(USDT|BUSD|FDUSD|TUSD|USDC|BTC|ETH|BNB)$/, '');
+    const quote = e.sym.slice(base.length);
+    const rankNow = e.latestRank === 999 ? '200+' : (e.latestRank || '?');
+    const isFallen = e.latestRank === undefined || e.latestRank >= dropN;
+    const isStillTop = e.latestRank && e.latestRank <= topN;
+    let statusLabel = '', statusClass = '';
+    if (isStillTop)        { statusLabel = '🥇 仍在榜'; statusClass = 'hot'; }
+    else if (isFallen)     { statusLabel = '📉 墜落'; statusClass = 'down'; }
+    else                   { statusLabel = '~ 下滑中'; statusClass = 'new'; }
+
+    const dots = e.rankHistory.slice(-6).map(h => {
+      const r = h.rank === 999 ? '—' : '#' + h.rank;
+      const cls = h.rank <= topN ? 'top1' : (h.rank < dropN ? 'mid' : 'fallen');
+      return `<span class="rank-dot ${cls}">${r}</span>`;
+    }).join('<span class="rank-arrow-sep">›</span>');
+
+    const age = Math.floor((now() - e.firstTs) / 60000);
+    const ageStr = age < 60 ? age + 'm' : Math.floor(age/60) + 'h' + age%60 + 'm';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><div class="sym-cell">${base}<small>/${quote}</small></div></td>
+      <td><span class="rank-badge was-top">#${e.bestRank}</span></td>
+      <td><span class="rank-badge ${isFallen ? 'now-rank' : ''}" style="${!isFallen?'background:rgba(0,255,136,0.1);color:var(--green);border-color:rgba(0,255,136,0.3)':''}">
+        #${rankNow}</span></td>
+      <td><div class="pct-cell ${e.latestPct !== null ? (e.latestPct >= 0 ? 'up' : 'down') : ''}">${e.latestPct !== null && e.latestPct !== undefined ? fmtPct(e.latestPct) : '—'}</div></td>
+      <td><div class="pct-cell up hot">${fmtPct(e.peakPct)}</div></td>
+      <td><div class="rank-timeline">${dots || '<span style="color:var(--text-dim);font-size:10px">累積中</span>'}</div></td>
+      <td class="age-text">${ageStr}前</td>
+      <td><span class="trend-chip ${statusClass}">${statusLabel}</span></td>
+      <td><button class="remove-btn" onclick="removeT3Sym('${e.sym}')">移除</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function removeT3Sym(sym) { delete t3Map[sym]; renderT3(); log('t3-log', `已手動移除 ${sym}`, 'warn'); }
+function clearT3() { 
+  // Note: we can't fully clear because backend will send it back. But we can empty it locally until next poll.
+  t3Map = {}; t3Snaps = []; t3SnapCount = 0; renderT3(); 
+  log('t3-log', '已清除畫面記錄 (下次同步時會恢復)', 'warn');
+}
+
+// ══ INIT ══
+log('t1-log', 'MoonRadar 已連接 Flask 後端...');
+log('t2-log', 'MoonTracker 已連接 Flask 後端...');
+log('t3-log', 'MoonFall 已連接 Flask 後端...');
+applyT3Params();
+fetchBackendData();
+</script>
+</body>
+</html>
