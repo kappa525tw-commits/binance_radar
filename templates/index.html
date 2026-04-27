@@ -166,6 +166,10 @@
   .param-row input[type=number] { width:70px; height:28px; background:var(--surface); border:1px solid rgba(255,59,92,0.3); color:var(--red); padding:0 8px; font-family:var(--mono); font-size:13px; border-radius:3px; text-align:center; }
   .param-row input[type=number]:focus { outline:none; border-color:var(--red); }
   .param-row .param-unit { color:var(--text-dim); font-size:11px; }
+  .confirm-btn { height:30px; padding:0 16px; font-family:var(--mono); font-size:11px; border-radius:3px; cursor:pointer; letter-spacing:1px; transition:all 0.2s; border:1px solid rgba(0,255,136,0.4); color:var(--green); background:rgba(0,255,136,0.08); }
+  .confirm-btn:hover { background:rgba(0,255,136,0.18); border-color:var(--green); }
+  .confirm-btn.saved { border-color:var(--green); background:rgba(0,255,136,0.25); animation:savedPulse 0.4s ease; }
+  @keyframes savedPulse { 0%{transform:scale(1)} 50%{transform:scale(1.06)} 100%{transform:scale(1)} }
   .fall-card { background:var(--surface); border:1px solid rgba(255,59,92,0.25); border-radius:4px; padding:14px 16px; position:relative; overflow:hidden; animation:cardIn 0.4s ease both; }
   .fall-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--red),var(--amber)); }
   .fall-card:hover { border-color:var(--red); transform:translateY(-2px); transition:transform 0.2s,border-color 0.2s; }
@@ -234,6 +238,7 @@
     <label>🕐 追蹤時長 <input type="number" id="t3-window" value="72" min="1" max="720" onchange="applyT3Params()"> <span class="param-unit">小時</span></label>
     <label>🥇 曾達前 <input type="number" id="t3-top-thresh" value="1" min="1" max="50" onchange="applyT3Params()"> <span class="param-unit">名</span></label>
     <label>📉 跌至第 <input type="number" id="t3-drop-thresh" value="4" min="2" max="200" onchange="applyT3Params()"> <span class="param-unit">名以外才警示</span></label>
+    <button class="confirm-btn" id="t3-save-btn" onclick="saveT3Params()" title="儲存設定，下次開啟不會重設">✓ 確定儲存</button>
     <button class="btn" style="color:var(--red);border-color:rgba(255,59,92,0.3);margin-left:auto" onclick="clearT3()">清除記錄</button>
   </div>
 
@@ -417,6 +422,30 @@ function applyT3Params() {
   renderT3();
 }
 
+function saveT3Params() {
+  const { intMin, winH, topN, dropN } = getT3Params();
+  localStorage.setItem('t3_intMin', intMin);
+  localStorage.setItem('t3_winH', winH);
+  localStorage.setItem('t3_topN', topN);
+  localStorage.setItem('t3_dropN', dropN);
+  const btn = document.getElementById('t3-save-btn');
+  btn.textContent = '✓ 已儲存！';
+  btn.classList.add('saved');
+  setTimeout(() => { btn.textContent = '✓ 確定儲存'; btn.classList.remove('saved'); }, 1500);
+  log('t3-log', `設定已儲存：追蹤${winH}h / 前${topN}名 / 跌出${dropN}名警示`, 'ok');
+}
+
+function loadT3Params() {
+  const intMin = localStorage.getItem('t3_intMin');
+  const winH   = localStorage.getItem('t3_winH');
+  const topN   = localStorage.getItem('t3_topN');
+  const dropN  = localStorage.getItem('t3_dropN');
+  if (intMin) document.getElementById('t3-interval').value    = intMin;
+  if (winH)   document.getElementById('t3-window').value      = winH;
+  if (topN)   document.getElementById('t3-top-thresh').value  = topN;
+  if (dropN)  document.getElementById('t3-drop-thresh').value = dropN;
+}
+
 function processTab3(snaps) {
   t3Map = {};
   t3Snaps = [];
@@ -592,6 +621,7 @@ function clearT3() {
 
 // ══ INIT ══
 log('t3-log', 'MoonFall 已連接 Flask 後端...');
+loadT3Params();
 applyT3Params();
 fetchBackendData();
 </script>
