@@ -145,10 +145,13 @@ def fall_snap():
         sorted_coins = []
         for d in data:
             try:
+                sym = d['symbol']
+                if not sym.endswith('USDT'):  # 只處理 USDT 配對
+                    continue
                 pct = float(d['priceChangePercent'])
                 if pct > 0:
                     sorted_coins.append({
-                        "sym": d['symbol'],
+                        "sym": sym,
                         "pct": pct,
                         "vol": float(d['quoteVolume']),
                         "price": float(d['lastPrice'])
