@@ -111,22 +111,30 @@ scheduler.start()
 # API Endpoints
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        import traceback
+        return f"<pre>{traceback.format_exc()}</pre>", 500
 
 @app.route('/api/data')
 def api_data():
-    if not r:
-        return jsonify({"error": "Redis not connected"}), 500
+    try:
+        if not r:
+            return jsonify({"error": "Redis not connected"}), 500
+            
+        latest = r.get("radar:latest_market")
+        tracker_snaps = r.lrange("radar:tracker:snaps", 0, -1)
+        fall_snaps = r.lrange("radar:fall:snaps", 0, -1)
         
-    latest = r.get("radar:latest_market")
-    tracker_snaps = r.lrange("radar:tracker:snaps", 0, -1)
-    fall_snaps = r.lrange("radar:fall:snaps", 0, -1)
-    
-    return jsonify({
-        "latest": json.loads(latest) if latest else None,
-        "tracker_snaps": [json.loads(s) for s in tracker_snaps],
-        "fall_snaps": [json.loads(s) for s in fall_snaps]
-    })
+        return jsonify({
+            "latest": json.loads(latest) if latest else None,
+            "tracker_snaps": [json.loads(s) for s in tracker_snaps],
+            "fall_snaps": [json.loads(s) for s in fall_snaps]
+        })
+    except Exception as e:
+        import traceback
+        return f"<pre>{traceback.format_exc()}</pre>", 500
 
 @app.route('/ping')
 def ping():
