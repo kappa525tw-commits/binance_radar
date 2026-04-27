@@ -4,14 +4,3 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
-    envVars:
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: radar-redis
-          property: connectionString
-
-  - type: redis
-    name: radar-redis
-    ipAllowList: [] # only allow internal connections
-    plan: free

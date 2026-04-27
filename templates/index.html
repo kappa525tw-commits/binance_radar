@@ -203,127 +203,15 @@
 
 <!-- TAB BAR -->
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('t1',this)">
-    <span class="tab-icon">🚀</span> 24H 漲幅雷達
-    <span class="tab-badge" id="badge1">--</span>
-  </button>
-  <button class="tab-btn" onclick="switchTab('t2',this)">
-    <span class="tab-icon">📈</span> 2H 追蹤器
-    <span class="tab-badge amber" id="badge2">--</span>
-  </button>
-  <button class="tab-btn" onclick="switchTab('t3',this)">
+  <button class="tab-btn active" onclick="switchTab('t3',this)">
     <span class="tab-icon">🎯</span> 排名墜落偵測
     <span class="tab-badge" id="badge3" style="background:rgba(255,59,92,0.12);border-color:rgba(255,59,92,0.3);color:var(--red)">--</span>
   </button>
 </div>
 
-<!-- ══════════ TAB 1 ══════════ -->
-<div class="tab-content active" id="t1">
-  <header>
-    <div>
-      <div class="logo">MOON<span>RADAR</span> <span style="color:var(--text-dim);font-size:14px;font-weight:300">24H</span></div>
-      <small class="logo">每 5 分鐘掃描幣安全市場 24H 漲幅</small>
-    </div>
-    <div class="status-row">
-      <div class="pulse-dot idle" id="p1-pulse"></div>
-      <span class="status-text" id="p1-status">等待掃描...</span>
-      <span class="source-tag" id="p1-src">--</span>
-      <div class="cring">
-        <svg width="40" height="40" viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16"/><circle class="fill" id="r1-fill" cx="20" cy="20" r="16" stroke-dasharray="100.5" stroke-dashoffset="100.5"/></svg>
-        <div class="cring-num" id="r1-num">--</div>
-      </div>
-      <button class="btn" id="r1-btn" onclick="triggerScan1()">立即掃描</button>
-    </div>
-  </header>
-  <div class="toolbar">
-    <div class="stat-chip"><span class="lbl">掃描幣數</span><span class="val" id="t1-total">--</span></div>
-    <div class="stat-chip"><span class="lbl">符合數量</span><span class="val amber" id="t1-hits">--</span></div>
-    <div class="stat-chip"><span class="lbl">更新時間</span><span class="val" id="t1-time" style="font-size:13px;color:var(--text)">--</span></div>
-    <div class="filter-btns">
-      <button class="fbtn active" onclick="setF1('all',this)">全部</button>
-      <button class="fbtn" onclick="setF1('USDT',this)">USDT</button>
-      <button class="fbtn" onclick="setF1('BTC',this)">BTC</button>
-      <button class="fbtn" onclick="setF1('ETH',this)">ETH</button>
-      <button class="fbtn" onclick="setF1('BNB',this)">BNB</button>
-    </div>
-    <div class="thr-ctrl">門檻 <input type="number" id="thr1" value="100" min="1"> %</div>
-  </div>
-  <main>
-    <div class="alert error" id="t1-err"></div>
-    <div class="sec-label" id="t1-label">掃描結果</div>
-    <div class="grid" id="t1-grid"></div>
-    <div class="sec-label">掃描日誌</div>
-    <div class="log-panel" id="t1-log"></div>
-  </main>
-</div>
-
-<!-- ══════════ TAB 2 ══════════ -->
-<div class="tab-content" id="t2">
-  <header>
-    <div>
-      <div class="logo">MOON<span>TRACKER</span> <span style="color:var(--blue);font-size:14px;font-weight:300">2H</span></div>
-      <small class="logo" style="color:rgba(79,195,247,0.6)">每 30 分鐘快照，追蹤 2 小時內漲幅 &gt; 20% 的幣</small>
-    </div>
-    <div class="status-row">
-      <div class="pulse-dot idle" id="p2-pulse"></div>
-      <span class="status-text" id="p2-status">等待快照...</span>
-      <span class="source-tag" id="p2-src">--</span>
-      <div class="cring">
-        <svg width="40" height="40" viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16"/><circle class="fill" id="r2-fill" cx="20" cy="20" r="16" style="stroke:var(--blue)" stroke-dasharray="100.5" stroke-dashoffset="100.5"/></svg>
-        <div class="cring-num" id="r2-num" style="color:var(--blue)">--</div>
-      </div>
-      <button class="btn" style="color:var(--blue);border-color:rgba(79,195,247,0.3)" id="r2-btn" onclick="triggerScan2()">立即快照</button>
-    </div>
-  </header>
-
-  <div class="toolbar">
-    <div class="stat-chip"><span class="lbl">追蹤幣種</span><span class="val blue" id="t2-tracking">0</span></div>
-    <div class="stat-chip"><span class="lbl">2H 漲 &gt;20%</span><span class="val amber" id="t2-hits">0</span></div>
-    <div class="stat-chip"><span class="lbl">快照次數</span><span class="val blue" id="t2-snaps">0</span></div>
-    <div class="stat-chip"><span class="lbl">上次快照</span><span class="val" id="t2-time" style="font-size:13px;color:var(--text)">--</span></div>
-    <div class="thr-ctrl" style="margin-left:auto;">2H門檻 <input type="number" id="thr2" value="20" min="1"> %</div>
-  </div>
-
-  <main>
-    <div class="tracker-info">
-      📌 <b>運作方式：</b>每 30 分鐘對全市場取一次快照，並與 2 小時前（4 個快照前）的價格比較，篩選出在這段時間內漲幅超過門檻的幣種。<br>
-      ⏱ <b>首次需要等待 2 小時</b>才能看到完整比較結果，但下方會即時顯示每次快照的累積漲幅趨勢。
-    </div>
-
-    <div class="alert error" id="t2-err"></div>
-
-    <div class="sec-label">2H 漲幅排行 <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">（目前快照與 2H 前快照比較）</span></div>
-    <div class="tbl-wrap">
-      <table id="t2-table">
-        <thead>
-          <tr>
-            <th onclick="sortT2('sym')">幣種 ↕</th>
-            <th onclick="sortT2('chg2h')" class="sorted">2H 漲幅 ↓</th>
-            <th onclick="sortT2('chg30')" >30分漲幅 ↕</th>
-            <th>趨勢圖</th>
-            <th>當前價</th>
-            <th onclick="sortT2('vol')">成交量 ↕</th>
-            <th>首次偵測</th>
-            <th>狀態</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="t2-body">
-          <tr><td colspan="9"><div class="empty-tbl"><div class="big">⏳</div>等待第一次快照完成...</div></td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="sec-label">快照歷史</div>
-    <div id="snap-history" style="font-size:11px;color:var(--text-dim);margin-bottom:20px;line-height:2;">尚無快照資料</div>
-
-    <div class="sec-label">追蹤日誌</div>
-    <div class="log-panel" id="t2-log"></div>
-  </main>
-</div>
-
 <!-- ══════════ TAB 3 ══════════ -->
-<div class="tab-content" id="t3">
+<!-- ══════════ TAB 3 ══════════ -->
+<div class="tab-content active" id="t3">
   <header>
     <div>
       <div class="logo">MOON<span>FALL</span> <span style="color:var(--red);font-size:14px;font-weight:300">RANK DROP</span></div>
@@ -406,9 +294,7 @@
 const POLL_INT = 15 * 1000; // Poll backend every 15 seconds
 const CIRC = 100.53;
 
-let allData1 = [], filter1 = 'all';
-let scanCount1 = 0;
-let t2SortKey = 'chg2h', t2SortAsc = false;
+
 
 // Helpers
 const fmtMoney = n => '$ ' + parseFloat(n).toLocaleString('en-US',{maximumSignificantDigits:6});
@@ -449,51 +335,28 @@ function switchTab(id, btn) {
 // ══════════════════════════════════════════
 let nextPoll = now() + POLL_INT;
 let pollTimer = null;
-let lastLatestTs = 0;
-let lastTrackerSnapsLen = 0;
+
 let lastFallSnapsLen = 0;
 
 // Expose these for manual UI interactions
-let trackerMap = {};
+
 let t3Map = {};
-let snapshots = [];
+
 let t3Snaps = [];
 let t3SnapCount = 0;
 
 async function fetchBackendData() {
-  setPulse('p1-pulse','loading');
-  setPulse('p2-pulse','loading');
   setPulse('p3-pulse','loading');
-  
   try {
     const r = await fetch('/api/data');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    
-    // Process Tab 1 (Latest 24H)
-    if (data.latest && data.latest.ts !== lastLatestTs) {
-      lastLatestTs = data.latest.ts;
-      processTab1(data.latest.data, data.latest.src || 'Backend API', data.latest.ts);
-    }
-    
-    // Process Tab 2 (Tracker Snaps)
-    if (data.tracker_snaps && data.tracker_snaps.length !== lastTrackerSnapsLen) {
-      lastTrackerSnapsLen = data.tracker_snaps.length;
-      processTab2(data.tracker_snaps);
-    }
-    
-    // Process Tab 3 (Fall Snaps)
     if (data.fall_snaps && data.fall_snaps.length !== lastFallSnapsLen) {
       lastFallSnapsLen = data.fall_snaps.length;
       processTab3(data.fall_snaps);
     }
-    
-    setPulse('p1-pulse','');
-    setPulse('p2-pulse','');
     setPulse('p3-pulse','');
   } catch(e) {
-    setPulse('p1-pulse','idle');
-    setPulse('p2-pulse','idle');
     setPulse('p3-pulse','idle');
     console.error('Fetch backend failed', e);
   } finally {
@@ -505,224 +368,12 @@ function scheduleNextPoll() {
   if (pollTimer) clearInterval(pollTimer);
   nextPoll = now() + POLL_INT;
   pollTimer = setInterval(() => {
-    updateRing('r1-fill','r1-num', POLL_INT, nextPoll);
-    updateRing('r2-fill','r2-num', POLL_INT, nextPoll);
     updateRing('r3-fill','r3-num', POLL_INT, nextPoll);
     if (now() >= nextPoll) { clearInterval(pollTimer); fetchBackendData(); }
   }, 1000);
 }
 
-function triggerScan1() { if(pollTimer)clearInterval(pollTimer); fetchBackendData(); }
-function triggerScan2() { if(pollTimer)clearInterval(pollTimer); fetchBackendData(); }
 function triggerScan3() { if(pollTimer)clearInterval(pollTimer); fetchBackendData(); }
-
-// ══════════════════════════════════════════
-//  TAB 1
-// ══════════════════════════════════════════
-function processTab1(data, src, ts) {
-  allData1 = data;
-  scanCount1++;
-  document.getElementById('p1-src').textContent = src;
-  document.getElementById('p1-src').className = 'source-tag ok';
-  const thr = parseFloat(document.getElementById('thr1').value)||100;
-  const hits = data.filter(d => parseFloat(d.priceChangePercent) >= thr);
-  document.getElementById('t1-total').textContent = data.length.toLocaleString();
-  document.getElementById('t1-hits').textContent  = hits.length;
-  document.getElementById('badge1').textContent   = hits.length;
-  document.getElementById('t1-time').textContent  = fmtTime(ts);
-  renderGrid1(hits);
-  document.getElementById('p1-status').innerHTML = `最新後端資料 (第 <b>${scanCount1}</b> 次)`;
-  log('t1-log', `同步完成 [${src}]：${data.length} 對，${hits.length} 個≥${thr}%`, 'ok');
-}
-
-function renderGrid1(hits) {
-  const thr = parseFloat(document.getElementById('thr1').value)||100;
-  let list = hits;
-  if (filter1 !== 'all') list = hits.filter(d => d.symbol.endsWith(filter1));
-  list.sort((a,b) => parseFloat(b.priceChangePercent)-parseFloat(a.priceChangePercent));
-  document.getElementById('t1-label').textContent = `漲幅 ≥ ${thr}%　共 ${list.length} 個`;
-  const grid = document.getElementById('t1-grid');
-  if (!list.length) {
-    grid.innerHTML = '<div class="empty-state"><div class="big">0</div><p>目前無符合條件的幣種<br>可調低門檻或等下次掃描</p></div>';
-    return;
-  }
-  grid.innerHTML = '';
-  list.forEach((d,i) => {
-    const pct = parseFloat(d.priceChangePercent);
-    const mega = pct >= 500;
-    const base = d.symbol.replace(/(USDT|BUSD|FDUSD|TUSD|USDC|BTC|ETH|BNB)$/,'');
-    const quote = d.symbol.slice(base.length);
-    const price = parseFloat(d.lastPrice);
-    const vol = parseFloat(d.quoteVolume);
-    const fill = Math.min(pct/Math.max(pct,1000)*100,100);
-    const c = document.createElement('div');
-    c.className = 'coin-card'+(mega?' mega':'');
-    c.style.animationDelay = (i*20)+'ms';
-    c.innerHTML = `
-      <div class="coin-header">
-        <div><div class="coin-sym">${base}</div><div class="coin-qt">/${quote}</div></div>
-        <div class="badge${mega?' mega':''}">${mega?'MEGA':'MOON'}</div>
-      </div>
-      <div class="coin-price">${fmtMoney(price)}</div>
-      <div class="coin-chg${mega?' mega':''}">+${pct.toFixed(2)}<span class="sign">%</span></div>
-      <div class="coin-vol">24H 量 <span>${fmtVol(vol)} ${quote}</span></div>
-      <div class="spark-bar"><div class="spark-fill" style="width:${fill}%;background:${mega?'var(--amber)':'var(--green)'}"></div></div>`;
-    grid.appendChild(c);
-  });
-}
-
-function setF1(f, btn) {
-  filter1 = f;
-  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  if (allData1.length) {
-    const thr = parseFloat(document.getElementById('thr1').value)||100;
-    renderGrid1(allData1.filter(d => parseFloat(d.priceChangePercent) >= thr));
-  }
-}
-
-// ══════════════════════════════════════════
-//  TAB 2
-// ══════════════════════════════════════════
-function processTab2(snaps) {
-  trackerMap = {};
-  snapshots = [];
-  const SNAP_KEEP = 4;
-  const thr2 = parseFloat(document.getElementById('thr2').value)||20;
-  
-  for (const snap of snaps) {
-    snapshots.push(snap);
-    if (snapshots.length > SNAP_KEEP + 1) snapshots.shift();
-    
-    const ts = snap.ts;
-    const prices = snap.prices;
-    const oldSnap = snapshots.length >= 2 ? snapshots[Math.max(0, snapshots.length - SNAP_KEEP - 1)] : null;
-    const prevSnap = snapshots.length >= 2 ? snapshots[snapshots.length - 2] : null;
-
-    Object.keys(prices).forEach(sym => {
-      const curP = prices[sym].price;
-      const prev30 = prevSnap?.prices[sym]?.price;
-      const chg30 = prev30 ? (curP - prev30)/prev30*100 : null;
-      const old2h = oldSnap?.prices[sym]?.price;
-      const chg2h = old2h ? (curP - old2h)/old2h*100 : null;
-
-      if (!trackerMap[sym]) {
-        if (chg2h !== null && chg2h >= thr2) {
-          trackerMap[sym] = { firstTs: ts, history: [], manualKeep: false };
-        } else if (chg30 !== null && chg30 >= thr2/2) {
-          trackerMap[sym] = { firstTs: ts, history: [], manualKeep: false };
-        }
-      }
-      if (trackerMap[sym]) {
-        trackerMap[sym].latestPrice = curP;
-        trackerMap[sym].latestVol   = prices[sym].vol;
-        trackerMap[sym].chg30 = chg30;
-        trackerMap[sym].chg2h = chg2h;
-        if (chg30 !== null) trackerMap[sym].history.push(chg30);
-        if (trackerMap[sym].history.length > 8) trackerMap[sym].history.shift();
-      }
-    });
-
-    const dropAge = 4 * 60 * 60 * 1000;
-    Object.keys(trackerMap).forEach(sym => {
-      const t = trackerMap[sym];
-      const aged = (now() - t.firstTs) > dropAge;
-      const stillHot = t.chg2h !== null && t.chg2h >= thr2;
-      if (aged && !stillHot && !t.manualKeep) delete trackerMap[sym];
-    });
-  }
-  
-  const hitCount = Object.values(trackerMap).filter(t => t.chg2h !== null && t.chg2h >= thr2).length;
-  document.getElementById('t2-tracking').textContent = Object.keys(trackerMap).length;
-  document.getElementById('t2-hits').textContent     = hitCount;
-  document.getElementById('badge2').textContent      = hitCount || '--';
-  document.getElementById('t2-snaps').textContent    = snaps.length;
-  if(snaps.length > 0) document.getElementById('t2-time').textContent = fmtTime(snaps[snaps.length-1].ts);
-  document.getElementById('p2-src').textContent      = 'Backend API';
-  document.getElementById('p2-src').className        = 'source-tag ok';
-  document.getElementById('p2-status').innerHTML = `後端同步 (共 <b>${snaps.length}</b> 個歷史快照)`;
-  
-  renderT2();
-  renderSnapHistory();
-}
-
-function renderT2() {
-  const thr2 = parseFloat(document.getElementById('thr2').value)||20;
-  const tbody = document.getElementById('t2-body');
-  let rows = Object.entries(trackerMap).map(([sym, t]) => ({ sym, ...t }));
-  rows.sort((a, b) => {
-    let va = t2SortKey === 'sym' ? a.sym : t2SortKey === 'chg30' ? (a.chg30||0) : t2SortKey === 'vol' ? (a.latestVol||0) : (a.chg2h||0);
-    let vb = t2SortKey === 'sym' ? b.sym : t2SortKey === 'chg30' ? (b.chg30||0) : t2SortKey === 'vol' ? (b.latestVol||0) : (b.chg2h||0);
-    if (t2SortKey === 'sym') return t2SortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
-    return t2SortAsc ? va-vb : vb-va;
-  });
-
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-tbl"><div class="big">⏳</div>等待快照資料累積中...<br><small style="font-size:11px;">首次需 2 小時（4 次快照）才能顯示 2H 漲幅</small></div></td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = '';
-  rows.forEach(({ sym, chg2h, chg30, latestPrice, latestVol, firstTs, history, manualKeep }) => {
-    const base  = sym.replace(/(USDT|BUSD|FDUSD|TUSD|USDC|BTC|ETH|BNB)$/,'');
-    const quote = sym.slice(base.length);
-    const is2hHot = chg2h !== null && chg2h >= thr2;
-    const isMega  = chg2h !== null && chg2h >= thr2*5;
-
-    const maxH = Math.max(...(history||[0]).map(Math.abs), 1);
-    const miniBars = (history||[]).map(v => {
-      const h = Math.max(Math.abs(v)/maxH*20,2).toFixed(0);
-      const col = v >= thr2 ? 'var(--amber)' : v >= 0 ? 'var(--green)' : 'var(--red)';
-      return `<div class="mini-bar" style="height:${h}px;background:${col};"></div>`;
-    }).join('');
-
-    let trendLabel = '', trendClass = '';
-    if (isMega) { trendLabel='🔥 MEGA'; trendClass='hot'; }
-    else if (is2hHot) { trendLabel='↑ 達標'; trendClass='up'; }
-    else if (chg2h === null) { trendLabel='◎ 監測中'; trendClass='new'; }
-    else if (chg2h < 0) { trendLabel='↓ 回落'; trendClass='down'; }
-    else { trendLabel='~ 未達標'; trendClass='new'; }
-
-    const age = Math.floor((now()-firstTs)/60000);
-    const ageStr = age < 60 ? age+'分鐘前' : Math.floor(age/60)+'h'+age%60+'m前';
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><div class="sym-cell">${base}<small>/${quote}</small></div></td>
-      <td><div class="pct-cell ${is2hHot?(isMega?'up hot':'up'):(chg2h!==null&&chg2h<0?'down':'')}">
-        ${chg2h !== null ? fmtPct(chg2h) : '—'}
-      </div></td>
-      <td><div class="pct-cell ${chg30!==null?(chg30>=0?'up':'down'):''}">
-        ${chg30 !== null ? fmtPct(chg30) : '—'}
-      </div></td>
-      <td><div class="mini-bars">${miniBars||'<span style="color:var(--text-dim);font-size:10px">累積中</span>'}</div></td>
-      <td style="color:var(--text)">${latestPrice ? (latestPrice<0.0001?latestPrice.toExponential(3):latestPrice.toLocaleString('en-US',{maximumSignificantDigits:5})) : '—'}</td>
-      <td style="color:var(--text-dim)">${latestVol ? fmtVol(latestVol)+' '+quote : '—'}</td>
-      <td class="age-text">${ageStr}</td>
-      <td><span class="trend-chip ${trendClass}">${trendLabel}</span></td>
-      <td><button class="remove-btn" onclick="removeSym('${sym}')">移除</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-function removeSym(sym) { delete trackerMap[sym]; renderT2(); log('t2-log', `已手動移除 ${sym}`, 'warn'); }
-function sortT2(key) {
-  if (t2SortKey === key) t2SortAsc = !t2SortAsc;
-  else { t2SortKey = key; t2SortAsc = key === 'sym'; }
-  document.querySelectorAll('#t2-table thead th').forEach(th => th.classList.remove('sorted'));
-  renderT2();
-}
-function renderSnapHistory() {
-  const el = document.getElementById('snap-history');
-  if (!snapshots.length) { el.textContent = '尚無快照資料'; return; }
-  el.innerHTML = snapshots.slice().reverse().map((s,i) =>
-    `<span style="margin-right:16px;color:${i===0?'var(--green)':'var(--text-dim)'}">
-      ${i===0?'▶ 最新':'  '}  ${new Date(s.ts).toLocaleTimeString('zh-TW')}
-      <span style="color:var(--text-dim)"> (${Object.keys(s.prices).length} 個交易對)</span>
-    </span><br>`
-  ).join('');
-}
 
 // ══════════════════════════════════════════
 //  TAB 3
@@ -919,8 +570,6 @@ function clearT3() {
 }
 
 // ══ INIT ══
-log('t1-log', 'MoonRadar 已連接 Flask 後端...');
-log('t2-log', 'MoonTracker 已連接 Flask 後端...');
 log('t3-log', 'MoonFall 已連接 Flask 後端...');
 applyT3Params();
 fetchBackendData();

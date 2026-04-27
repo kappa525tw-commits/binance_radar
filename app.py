@@ -46,48 +46,6 @@ def get_binance_data():
             continue
     return None
 
-def fetch_latest_market():
-    logger.info("Task: fetch_latest_market starting...")
-    data = get_binance_data()
-    if data and isinstance(data, list) and r:
-        # Only store coins with priceChangePercent >= 5% to stay within Upstash 1MB key limit
-        filtered = [
-            d for d in data
-            if _safe_float(d.get('priceChangePercent')) >= 5.0
-        ]
-        payload = {
-            "ts": int(time.time() * 1000),
-            "data": filtered,
-            "src": "Backend API"
-        }
-        blob = json.dumps(payload)
-        logger.info(f"fetch_latest_market: {len(filtered)} coins, payload {len(blob)//1024}KB")
-        r.set("radar:latest_market", blob)
-        logger.info("Task: fetch_latest_market completed.")
-
-def tracker_snap():
-    logger.info("Task: tracker_snap starting...")
-    data = get_binance_data()
-    if data and isinstance(data, list) and r:
-        # Only store coins with positive change to compress payload size
-        prices = {}
-        for d in data:
-            pct = _safe_float(d.get('priceChangePercent'))
-            if pct > 0:
-                prices[d['symbol']] = {
-                    "price": float(d['lastPrice']),
-                    "vol": float(d['quoteVolume'])
-                }
-        snap = {
-            "ts": int(time.time() * 1000),
-            "prices": prices
-        }
-        blob = json.dumps(snap)
-        logger.info(f"tracker_snap: {len(prices)} coins, payload {len(blob)//1024}KB")
-        r.rpush("radar:tracker:snaps", blob)
-        # Keep only the last 10 snapshots (~5 hours)
-        r.ltrim("radar:tracker:snaps", -10, -1)
-        logger.info("Task: tracker_snap completed.")
 
 def fall_snap():
     logger.info("Task: fall_snap starting...")
@@ -127,10 +85,6 @@ scheduler = BackgroundScheduler()
 
 def init_startup():
     if r:
-        if not r.get("radar:latest_market"):
-            fetch_latest_market()
-        if r.llen("radar:tracker:snaps") == 0:
-            tracker_snap()
         if r.llen("radar:fall:snaps") == 0:
             fall_snap()
 
@@ -138,8 +92,6 @@ def init_startup():
 scheduler.add_job(init_startup, 'date', run_date=datetime.now())
 
 # Use cron for precise scheduling even if server restarts
-scheduler.add_job(fetch_latest_market, 'cron', minute='*/5')
-scheduler.add_job(tracker_snap, 'cron', minute='0,30')
 scheduler.add_job(fall_snap, 'cron', minute='0')
 scheduler.start()
 
@@ -158,13 +110,9 @@ def api_data():
         if not r:
             return jsonify({"error": "Redis not connected"}), 500
             
-        latest = r.get("radar:latest_market")
-        tracker_snaps = r.lrange("radar:tracker:snaps", 0, -1)
         fall_snaps = r.lrange("radar:fall:snaps", 0, -1)
         
         return jsonify({
-            "latest": json.loads(latest) if latest else None,
-            "tracker_snaps": [json.loads(s) for s in tracker_snaps],
             "fall_snaps": [json.loads(s) for s in fall_snaps]
         })
     except Exception as e:
