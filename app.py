@@ -138,15 +138,73 @@ def get_binance_data():
 
 
 
+import re
+
+futures_symbols_cache = set()
+futures_symbols_cache_time = 0
+
+def get_futures_symbols():
+    """Fetch the list of symbols that have perpetual futures contracts."""
+    global futures_symbols_cache, futures_symbols_cache_time
+    # Cache for 6 hours
+    if time.time() - futures_symbols_cache_time < 6 * 3600 and futures_symbols_cache:
+        return futures_symbols_cache
+        
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+    new_symbols = set()
+    
+    def normalize_sym(s):
+        # Remove multiplier prefixes like 1000PEPEUSDT -> PEPEUSDT
+        m = re.match(r'^(1000000|100000|10000|1000|100)?(.*)$', s)
+        return m.group(2) if m else s
+
+    # 1. Try Binance Futures API
+    try:
+        resp = requests.get('https://fapi.binance.com/fapi/v1/exchangeInfo', timeout=15, headers=headers)
+        if resp.status_code == 200:
+            for s in resp.json().get('symbols', []):
+                if s.get('contractType') == 'PERPETUAL':
+                    new_symbols.add(normalize_sym(s['symbol']))
+            if new_symbols:
+                futures_symbols_cache = new_symbols
+                futures_symbols_cache_time = time.time()
+                logger.info(f"[OK] Fetched {len(new_symbols)} futures from Binance")
+                return new_symbols
+    except Exception as e:
+        logger.warning(f"Failed to fetch Binance Futures: {e}")
+        
+    # 2. Try CoinGecko Derivatives API as fallback
+    try:
+        time.sleep(1)
+        resp = requests.get('https://api.coingecko.com/api/v3/derivatives/exchanges/binance_futures?include_tickers=unexpired', timeout=15, headers=headers)
+        if resp.status_code == 200:
+            for t in resp.json().get('tickers', []):
+                sym = t.get('symbol', '').upper().replace('-', '')
+                new_symbols.add(normalize_sym(sym))
+            if new_symbols:
+                futures_symbols_cache = new_symbols
+                futures_symbols_cache_time = time.time()
+                logger.info(f"[OK] Fetched {len(new_symbols)} futures from CoinGecko")
+                return new_symbols
+    except Exception as e:
+        logger.warning(f"Failed to fetch CoinGecko Futures: {e}")
+
+    return futures_symbols_cache
+
+
 def fall_snap():
     logger.info("Task: fall_snap starting...")
     data = get_binance_data()
+    futures_syms = get_futures_symbols()
+    
     if data and isinstance(data, list) and r:
         sorted_coins = []
         for d in data:
             try:
                 sym = d['symbol']
                 if not sym.endswith('USDT'):  # 只處理 USDT 配對
+                    continue
+                if futures_syms and sym not in futures_syms: # 只處理有合約的幣
                     continue
                 pct = float(d['priceChangePercent'])
                 if pct > 0:
