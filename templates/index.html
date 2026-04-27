@@ -291,7 +291,7 @@
 // ══════════════════════════════════════════
 //  CONFIG & STATE
 // ══════════════════════════════════════════
-const POLL_INT = 15 * 1000; // Poll backend every 15 seconds
+const POLL_INT = 5 * 60 * 1000; // Poll backend every 5 minutes (snapshot is hourly, saves Upstash quota)
 const CIRC = 100.53;
 
 
@@ -351,6 +351,15 @@ async function fetchBackendData() {
     const r = await fetch('/api/data');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
+    
+    const errBox = document.getElementById('t3-err');
+    if (data.error) {
+      errBox.innerHTML = '<div class="alt">⚠️ Binance API Error</div>' + data.error;
+      errBox.classList.add('show');
+    } else {
+      errBox.classList.remove('show');
+    }
+    
     if (data.fall_snaps && data.fall_snaps.length !== lastFallSnapsLen) {
       lastFallSnapsLen = data.fall_snaps.length;
       processTab3(data.fall_snaps);
@@ -373,7 +382,19 @@ function scheduleNextPoll() {
   }, 1000);
 }
 
-function triggerScan3() { if(pollTimer)clearInterval(pollTimer); fetchBackendData(); }
+async function triggerScan3() {
+  if (pollTimer) clearInterval(pollTimer);
+  setPulse('p3-pulse','loading');
+  try {
+    const res = await fetch('/api/trigger', { method: 'POST' });
+    if (!res.ok) throw new Error('Trigger failed');
+    log('t3-log', '已發送手動快照請求至後端...', 'info');
+    setTimeout(fetchBackendData, 2000);
+  } catch(e) {
+    console.error(e);
+    fetchBackendData();
+  }
+}
 
 // ══════════════════════════════════════════
 //  TAB 3

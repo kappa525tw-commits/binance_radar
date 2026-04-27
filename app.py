@@ -76,7 +76,12 @@ def fall_snap():
         r.rpush("radar:fall:snaps", json.dumps(snap))
         # Keep only the last 75 snapshots (75 hours)
         r.ltrim("radar:fall:snaps", -75, -1)
+        r.delete("radar:last_error") # Clear any previous error
         logger.info("Task: fall_snap completed.")
+    elif r:
+        err_msg = f"Failed to get valid list data from Binance. Received: {str(data)[:200]}"
+        logger.error(err_msg)
+        r.set("radar:last_error", err_msg)
 
 from datetime import datetime
 
@@ -95,6 +100,10 @@ scheduler.add_job(init_startup, 'date', run_date=datetime.now())
 scheduler.add_job(fall_snap, 'cron', minute='0')
 scheduler.start()
 
+# Server-side cache to avoid hammering Upstash on every poll
+_cache = {"data": None, "ts": 0}
+CACHE_TTL = 60  # seconds
+
 # API Endpoints
 @app.route('/')
 def index():
@@ -109,12 +118,32 @@ def api_data():
     try:
         if not r:
             return jsonify({"error": "Redis not connected"}), 500
-            
-        fall_snaps = r.lrange("radar:fall:snaps", 0, -1)
         
-        return jsonify({
-            "fall_snaps": [json.loads(s) for s in fall_snaps]
-        })
+        # Serve from cache if fresh (reduces Upstash command usage)
+        if _cache["data"] and (time.time() - _cache["ts"]) < CACHE_TTL:
+            return jsonify(_cache["data"])
+        
+        fall_snaps = r.lrange("radar:fall:snaps", 0, -1)
+        last_error = r.get("radar:last_error")
+        
+        result = {
+            "fall_snaps": [json.loads(s) for s in fall_snaps],
+            "error": last_error
+        }
+        _cache["data"] = result
+        _cache["ts"] = time.time()
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        return f"<pre>{traceback.format_exc()}</pre>", 500
+
+@app.route('/api/trigger', methods=['POST'])
+def trigger_snap():
+    try:
+        if not r:
+            return jsonify({"error": "Redis not connected"}), 500
+        scheduler.add_job(fall_snap, 'date', run_date=datetime.now())
+        return jsonify({"status": "Snapshot triggered in background"})
     except Exception as e:
         import traceback
         return f"<pre>{traceback.format_exc()}</pre>", 500
