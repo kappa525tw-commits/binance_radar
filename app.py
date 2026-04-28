@@ -34,6 +34,10 @@ def _safe_float(v, default=0.0):
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
 
+# Cache for futures symbols list (avoid repeated API calls)
+futures_symbols_cache = set()
+futures_symbols_cache_time = 0
+
 def get_bybit_ticker():
     """Fetch 24H ticker from Bybit linear perpetuals (no geo-restrictions)."""
     try:
@@ -355,34 +359,34 @@ def ping():
 
 @app.route('/api/debug')
 def api_debug():
-    """Test fapi connectivity directly - open this URL in browser to diagnose."""
-    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+    """Test connectivity - open in browser to diagnose."""
     results = []
-    test_urls = [
-        'https://fapi.binance.com/fapi/v1/ping',
-        'https://fapi.binance.com/fapi/v1/ticker/24hr',
+    tests = [
+        ('Binance fapi ping',   'https://fapi.binance.com/fapi/v1/ping'),
+        ('Binance fapi ticker', 'https://fapi.binance.com/fapi/v1/ticker/24hr'),
+        ('Bybit tickers',       'https://api.bybit.com/v5/market/tickers?category=linear'),
     ]
-    for url in test_urls:
+    for name, url in tests:
         try:
-            resp = requests.get(url, timeout=20, headers=headers)
-            content_len = len(resp.content)
-            results.append({
-                "url": url,
-                "status": resp.status_code,
-                "size_bytes": content_len,
-                "ok": resp.status_code == 200
-            })
+            resp = requests.get(url, timeout=15, headers=HEADERS)
+            results.append({'name': name, 'status': resp.status_code,
+                            'size': len(resp.content), 'ok': resp.status_code == 200})
         except Exception as e:
-            results.append({"url": url, "error": str(e), "ok": False})
-    
-    redis_ok = bool(r and r.ping()) if r else False
-    snap_count = r.llen("radar:fall:snaps") if r else 0
-    
-    return jsonify({
-        "fapi_tests": results,
-        "redis_ok": redis_ok,
-        "fall_snap_count": snap_count,
-    })
+            results.append({'name': name, 'error': str(e), 'ok': False})
+
+    snap_count  = r.llen('radar:fall:snaps') if r else 0
+    last_error  = r.get('radar:last_error')  if r else None
+    redis_ok    = bool(r and r.ping())
+    return jsonify({'tests': results, 'redis_ok': redis_ok,
+                    'snap_count': snap_count, 'last_error': last_error})
+
+@app.route('/api/clear-error', methods=['POST'])
+def clear_error():
+    """Manually clear the Redis error flag and re-trigger a snapshot."""
+    if r:
+        r.delete('radar:last_error')
+    scheduler.add_job(fall_snap, 'date', run_date=datetime.now())
+    return jsonify({'status': 'Error cleared and fall_snap triggered'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
