@@ -359,26 +359,30 @@ def ping():
 
 @app.route('/api/debug')
 def api_debug():
-    """Test connectivity - open in browser to diagnose."""
-    results = []
+    """Test connectivity from Render's IP against multiple exchanges."""
     tests = [
-        ('Binance fapi ping',   'https://fapi.binance.com/fapi/v1/ping'),
-        ('Binance fapi ticker', 'https://fapi.binance.com/fapi/v1/ticker/24hr'),
-        ('Bybit tickers',       'https://api.bybit.com/v5/market/tickers?category=linear'),
+        ('Binance fapi',  'https://fapi.binance.com/fapi/v1/ping'),
+        ('Bybit',         'https://api.bybit.com/v5/market/tickers?category=linear'),
+        ('OKX',           'https://www.okx.com/api/v5/market/tickers?instType=SWAP'),
+        ('Gate.io',       'https://api.gateio.ws/api/v4/futures/usdt/tickers'),
+        ('MEXC',          'https://contract.mexc.com/api/v1/contract/ticker'),
+        ('Bitget',        'https://api.bitget.com/api/mix/v1/market/tickers?productType=umcbl'),
+        ('KuCoin Fut',    'https://api-futures.kucoin.com/api/v1/contracts/active'),
     ]
+    results = []
     for name, url in tests:
         try:
-            resp = requests.get(url, timeout=15, headers=HEADERS)
+            resp = requests.get(url, timeout=10, headers=HEADERS)
             results.append({'name': name, 'status': resp.status_code,
                             'size': len(resp.content), 'ok': resp.status_code == 200})
         except Exception as e:
-            results.append({'name': name, 'error': str(e), 'ok': False})
+            results.append({'name': name, 'error': str(e)[:80], 'ok': False})
 
-    snap_count  = r.llen('radar:fall:snaps') if r else 0
-    last_error  = r.get('radar:last_error')  if r else None
-    redis_ok    = bool(r and r.ping())
-    return jsonify({'tests': results, 'redis_ok': redis_ok,
+    snap_count = r.llen('radar:fall:snaps') if r else 0
+    last_error = r.get('radar:last_error')  if r else None
+    return jsonify({'tests': results, 'redis_ok': bool(r),
                     'snap_count': snap_count, 'last_error': last_error})
+
 
 @app.route('/api/clear-error', methods=['POST'])
 def clear_error():
