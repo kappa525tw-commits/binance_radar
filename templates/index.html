@@ -201,6 +201,17 @@
   .rank-dot.fallen { background:rgba(255,59,92,0.15); color:var(--red); border:1px solid rgba(255,59,92,0.3); }
   .rank-dot.mid { background:rgba(255,255,255,0.05); color:var(--text-dim); border:1px solid var(--border); }
   .rank-arrow-sep { color:var(--text-dim); font-size:10px; }
+
+  /* ── EMA200 TAB ── */
+  .ema-table { width:100%; border-collapse:collapse; font-size:12px; min-width:680px; }
+  .ema-table thead th { background:var(--surface2); color:var(--text-dim); padding:9px 12px; text-align:left; font-size:11px; letter-spacing:0.5px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .ema-table tbody tr { border-bottom:1px solid rgba(255,255,255,0.04); transition:background 0.15s; }
+  .ema-table tbody tr:hover { background:rgba(79,195,247,0.04); }
+  .ema-table tbody td { padding:9px 12px; vertical-align:middle; white-space:nowrap; }
+  .ema-badge { display:inline-block; font-size:9px; padding:2px 7px; border-radius:2px; font-weight:700; letter-spacing:0.5px; background:rgba(79,195,247,0.15); color:var(--blue); border:1px solid rgba(79,195,247,0.3); }
+  .ema-pct { font-family:var(--display); font-weight:700; font-size:15px; color:var(--blue); }
+  .ema-info { background:var(--surface); border:1px solid rgba(79,195,247,0.2); border-radius:4px; padding:12px 16px; font-size:12px; color:var(--blue); margin-bottom:20px; line-height:1.8; }
+  .ema-info b { color:#fff; }
 </style>
 </head>
 <body>
@@ -210,6 +221,10 @@
   <button class="tab-btn active" onclick="switchTab('t3',this)">
     <span class="tab-icon">🎯</span> 排名墜落偵測
     <span class="tab-badge" id="badge3" style="background:rgba(255,59,92,0.12);border-color:rgba(255,59,92,0.3);color:var(--red)">--</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('t4',this)">
+    <span class="tab-icon">📈</span> 1H EMA200 突破
+    <span class="tab-badge" id="badge4" style="background:rgba(79,195,247,0.12);border-color:rgba(79,195,247,0.3);color:var(--blue)">--</span>
   </button>
 </div>
 
@@ -291,6 +306,50 @@
   </main>
 </div>
 
+<!-- ══════════ TAB 4: EMA200 ══════════ -->
+<div class="tab-content" id="t4">
+  <header>
+    <div>
+      <div class="logo">MOON<span style="color:var(--blue)">EMA</span> <span style="color:var(--blue);font-size:14px;font-weight:300">200 BREAK</span></div>
+      <small class="logo" style="color:rgba(79,195,247,0.6)">偵測1H收盤突破EMA200的永續合約幣種</small>
+    </div>
+    <div class="status-row">
+      <div class="pulse-dot idle" id="p4-pulse"></div>
+      <span class="status-text" id="p4-status">等待資料...</span>
+      <span class="source-tag" id="p4-src">--</span>
+    </div>
+  </header>
+  <main>
+    <div class="ema-info">
+      📈 <b>運作方式：</b>每小時掃描所有 Binance 永續合約 USDT 幣種的 1H K線，計算 EMA200（200週期指數移動平均），偵測最新收盤從 <b>EMA200下方突破至上方</b>的幣種。<br>
+      ⚡ <b>訊號意義：</b>突破 EMA200 通常代表中期動能轉強，是潛在的趨勢確認訊號。
+    </div>
+    <div class="alert error" id="t4-err"></div>
+    <div class="toolbar">
+      <div class="stat-chip"><span class="lbl">突破數量</span><span class="val blue" id="t4-count">--</span></div>
+      <div class="stat-chip"><span class="lbl">上次掃描</span><span class="val" id="t4-time" style="font-size:13px;color:var(--text)">--</span></div>
+    </div>
+    <div class="sec-label">突破名單 <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">（最近1H收盤剛突破EMA200）</span></div>
+    <div class="tbl-wrap">
+      <table class="ema-table">
+        <thead>
+          <tr>
+            <th>幣種</th>
+            <th>當前價</th>
+            <th>EMA200</th>
+            <th>突破幅度 ↓</th>
+            <th>1H成交量</th>
+            <th>合約連結</th>
+          </tr>
+        </thead>
+        <tbody id="t4-body">
+          <tr><td colspan="6"><div class="empty-tbl"><div class="big">⏳</div>等待第一次掃描...</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
 
 <script>
 // ══════════════════════════════════════════
@@ -342,6 +401,7 @@ let nextPoll = now() + POLL_INT;
 let pollTimer = null;
 
 let lastFallSnapsLen = 0;
+let lastEmaTs = 0;
 
 // Expose these for manual UI interactions
 
@@ -352,6 +412,7 @@ let t3SnapCount = 0;
 
 async function fetchBackendData() {
   setPulse('p3-pulse','loading');
+  setPulse('p4-pulse','loading');
   try {
     const r = await fetch('/api/data');
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -369,9 +430,15 @@ async function fetchBackendData() {
       lastFallSnapsLen = data.fall_snaps.length;
       processTab3(data.fall_snaps);
     }
+    if (data.ema_breaks && data.ema_breaks.ts !== lastEmaTs) {
+      lastEmaTs = data.ema_breaks.ts;
+      renderEmaBreaks(data.ema_breaks);
+    }
     setPulse('p3-pulse','');
+    setPulse('p4-pulse','');
   } catch(e) {
     setPulse('p3-pulse','idle');
+    setPulse('p4-pulse','idle');
     console.error('Fetch backend failed', e);
   } finally {
     scheduleNextPoll();
@@ -617,6 +684,41 @@ function clearT3() {
   // Note: we can't fully clear because backend will send it back. But we can empty it locally until next poll.
   t3Map = {}; t3Snaps = []; t3SnapCount = 0; renderT3(); 
   log('t3-log', '已清除畫面記錄 (下次同步時會恢復)', 'warn');
+}
+
+// ══════════════════════════════════════════
+//  TAB 4: EMA200 Breaks
+// ══════════════════════════════════════════
+function renderEmaBreaks(snap) {
+  const breaks = snap.breaks || [];
+  const tbody = document.getElementById('t4-body');
+  document.getElementById('t4-count').textContent = breaks.length || '--';
+  document.getElementById('badge4').textContent   = breaks.length || '--';
+  document.getElementById('p4-src').textContent   = 'Binance Futures';
+  document.getElementById('p4-src').className     = 'source-tag ok';
+  if (snap.ts) document.getElementById('t4-time').textContent = fmtTime(snap.ts);
+  document.getElementById('p4-status').innerHTML = `後端同步 (共 <b>${breaks.length}</b> 個突破)`;
+
+  if (!breaks.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-tbl"><div class="big">📈</div>本小時無 EMA200 突破訊號</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  breaks.forEach(b => {
+    const base  = b.sym.replace(/USDT$/, '');
+    const price = b.price < 0.001 ? b.price.toExponential(3) : b.price.toLocaleString('en-US', {maximumSignificantDigits: 6});
+    const ema   = b.ema200 < 0.001 ? b.ema200.toExponential(3) : b.ema200.toLocaleString('en-US', {maximumSignificantDigits: 6});
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><div class="sym-cell">${base}<small>/USDT</small></div></td>
+      <td style="color:var(--text)">${price}</td>
+      <td style="color:var(--text-dim)">${ema}</td>
+      <td><span class="ema-pct">+${b.pct_above.toFixed(2)}%</span></td>
+      <td style="color:var(--text-dim)">${fmtVol(b.vol)} USDT</td>
+      <td><a href="https://www.binance.com/en/futures/${b.sym}" target="_blank" style="color:var(--blue);font-size:11px;text-decoration:none;border:1px solid rgba(79,195,247,0.3);padding:2px 8px;border-radius:3px;">開合約 →</a></td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 // ══ INIT ══

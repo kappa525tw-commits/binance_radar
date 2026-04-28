@@ -2,6 +2,8 @@ import os
 import json
 import time
 import requests
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -245,11 +247,88 @@ def init_startup():
         if r.llen("radar:fall:snaps") == 0:
             fall_snap()
 
+# ── EMA200 Breakout ──────────────────────────────────────────
+def fetch_klines_1h(symbol, limit=212):
+    """Fetch 1H klines from Binance Futures API (accessible from US servers)."""
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+    try:
+        resp = requests.get(
+            'https://fapi.binance.com/fapi/v1/klines',
+            params={'symbol': symbol, 'interval': '1h', 'limit': limit},
+            timeout=10, headers=headers
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        logger.debug(f"klines {symbol}: {e}")
+    return None
+
+def ema_snap():
+    """Scan futures USDT pairs for 1H EMA200 breakouts."""
+    logger.info("Task: ema_snap starting...")
+    if not r:
+        return
+
+    futures_syms = get_futures_symbols()
+    if not futures_syms:
+        logger.warning("ema_snap: no futures symbols, skipping")
+        return
+
+    usdt_syms = sorted([s for s in futures_syms if s.endswith('USDT')])
+    logger.info(f"ema_snap: checking {len(usdt_syms)} symbols")
+
+    K = 2 / 201  # EMA200 smoothing factor
+
+    def check_ema_break(sym):
+        klines = fetch_klines_1h(sym, limit=212)
+        if not klines or len(klines) < 202:
+            return None
+        try:
+            closes = [float(k[4]) for k in klines]
+            # Seed EMA200 with SMA of first 200 candles
+            ema = sum(closes[:200]) / 200
+            # Update through second-to-last closed candle (skip last which is open)
+            for price in closes[200:-2]:
+                ema = price * K + ema * (1 - K)
+            prev_ema   = ema
+            prev_close = closes[-3]
+            # Advance one candle to the most recently closed bar
+            curr_close = closes[-2]
+            curr_ema   = curr_close * K + prev_ema * (1 - K)
+            # Breakout: prev closed below EMA, current closed above
+            if prev_close < prev_ema and curr_close >= curr_ema:
+                vol = float(klines[-2][7])  # quote volume of that candle
+                return {
+                    'sym': sym,
+                    'price': curr_close,
+                    'ema200': round(curr_ema, 8),
+                    'pct_above': round((curr_close - curr_ema) / curr_ema * 100, 2),
+                    'vol': round(vol, 0),
+                }
+        except Exception as e:
+            logger.debug(f"ema check {sym}: {e}")
+        return None
+
+    breaks = []
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        future_map = {executor.submit(check_ema_break, sym): sym for sym in usdt_syms}
+        for future in as_completed(future_map):
+            result = future.result()
+            if result:
+                breaks.append(result)
+
+    breaks.sort(key=lambda x: x['pct_above'], reverse=True)
+    snap = {'ts': int(time.time() * 1000), 'breaks': breaks}
+    r.set('radar:ema200:latest', json.dumps(snap))
+    _cache['ts'] = 0  # invalidate API cache
+    logger.info(f"ema_snap: found {len(breaks)} EMA200 breaks")
+
 # Run once on startup in background to populate empty database
 scheduler.add_job(init_startup, 'date', run_date=datetime.now())
 
-# Use cron for precise scheduling even if server restarts
+# fall_snap at minute 0, ema_snap at minute 3 every hour
 scheduler.add_job(fall_snap, 'cron', minute='0')
+scheduler.add_job(ema_snap,  'cron', minute='3')
 scheduler.start()
 
 # Server-side cache to avoid hammering Upstash on every poll
@@ -276,10 +355,13 @@ def api_data():
             return jsonify(_cache["data"])
         
         fall_snaps = r.lrange("radar:fall:snaps", 0, -1)
-        last_error = r.get("radar:last_error")
+        last_error  = r.get("radar:last_error")
+        ema_raw     = r.get("radar:ema200:latest")
+        ema_data    = json.loads(ema_raw) if ema_raw else {'ts': 0, 'breaks': []}
         
         result = {
             "fall_snaps": [json.loads(s) for s in fall_snaps],
+            "ema_breaks": ema_data,
             "error": last_error
         }
         _cache["data"] = result
@@ -295,7 +377,8 @@ def trigger_snap():
         if not r:
             return jsonify({"error": "Redis not connected"}), 500
         scheduler.add_job(fall_snap, 'date', run_date=datetime.now())
-        return jsonify({"status": "Snapshot triggered in background"})
+        scheduler.add_job(ema_snap,  'date', run_date=datetime.now())
+        return jsonify({"status": "Snapshots triggered in background"})
     except Exception as e:
         import traceback
         return f"<pre>{traceback.format_exc()}</pre>", 500
