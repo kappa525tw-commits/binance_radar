@@ -33,22 +33,29 @@ def _safe_float(v, default=0.0):
         return default
 
 def get_futures_ticker():
-    """Fetch 24H ticker data from Binance Futures API (USDT perpetuals only)."""
+    """Fetch 24H ticker data from Binance Futures API (all perpetuals)."""
     headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
-    try:
-        resp = requests.get(
-            'https://fapi.binance.com/fapi/v1/ticker/24hr',
-            timeout=15, headers=headers
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                logger.info(f"[OK] Futures ticker: {len(data)} symbols")
-                return data
-        logger.warning(f"Futures ticker HTTP {resp.status_code}")
-    except Exception as e:
-        logger.warning(f"Futures ticker failed: {e}")
+    endpoints = [
+        'https://fapi.binance.com/fapi/v1/ticker/24hr',
+        'https://fapi.binance.com/fapi/v2/ticker/24hr',  # v2 fallback
+    ]
+    for attempt in range(3):  # up to 3 retries
+        for url in endpoints:
+            try:
+                resp = requests.get(url, timeout=30, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        logger.info(f"[OK] Futures ticker ({url}): {len(data)} symbols")
+                        return data
+                logger.warning(f"Futures ticker {url}: HTTP {resp.status_code}")
+            except Exception as e:
+                logger.warning(f"Futures ticker {url} attempt {attempt+1}: {e}")
+        if attempt < 2:
+            time.sleep(3)  # wait 3s before retry
+    logger.error("get_futures_ticker: all attempts failed")
     return None
+
 
 
 def fall_snap():
