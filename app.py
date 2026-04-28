@@ -248,5 +248,36 @@ def trigger_snap():
 def ping():
     return jsonify({"status": "ok", "time": time.time()})
 
+@app.route('/api/debug')
+def api_debug():
+    """Test fapi connectivity directly - open this URL in browser to diagnose."""
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+    results = []
+    test_urls = [
+        'https://fapi.binance.com/fapi/v1/ping',
+        'https://fapi.binance.com/fapi/v1/ticker/24hr',
+    ]
+    for url in test_urls:
+        try:
+            resp = requests.get(url, timeout=20, headers=headers)
+            content_len = len(resp.content)
+            results.append({
+                "url": url,
+                "status": resp.status_code,
+                "size_bytes": content_len,
+                "ok": resp.status_code == 200
+            })
+        except Exception as e:
+            results.append({"url": url, "error": str(e), "ok": False})
+    
+    redis_ok = bool(r and r.ping()) if r else False
+    snap_count = r.llen("radar:fall:snaps") if r else 0
+    
+    return jsonify({
+        "fapi_tests": results,
+        "redis_ok": redis_ok,
+        "fall_snap_count": snap_count,
+    })
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
