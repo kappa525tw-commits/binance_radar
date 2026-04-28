@@ -194,19 +194,43 @@ def get_futures_symbols():
     return futures_symbols_cache
 
 
+def get_futures_ticker():
+    """Fetch 24H ticker data directly from Binance Futures API.
+    This includes futures-only coins that don't exist on spot market."""
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+    try:
+        resp = requests.get(
+            'https://fapi.binance.com/fapi/v1/ticker/24hr',
+            timeout=15, headers=headers
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, list) and len(data) > 0:
+                logger.info(f"[OK] Futures ticker: {len(data)} symbols")
+                return data, False   # (data, needs_futures_filter)
+        logger.warning(f"Futures ticker HTTP {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Futures ticker failed: {e}")
+
+    # Fallback: spot data + futures filter
+    logger.warning("Falling back to spot data with futures filter")
+    data = get_binance_data()
+    return data, True   # needs_futures_filter=True
+
+
 def fall_snap():
     logger.info("Task: fall_snap starting...")
-    data = get_binance_data()
-    futures_syms = get_futures_symbols()
-    
+    data, needs_filter = get_futures_ticker()
+    futures_syms = get_futures_symbols() if needs_filter else None
+
     if data and isinstance(data, list) and r:
         sorted_coins = []
         for d in data:
             try:
                 sym = d['symbol']
-                if not sym.endswith('USDT'):  # 只處理 USDT 配對
+                if not sym.endswith('USDT'):         # USDT 配對限定
                     continue
-                if futures_syms and sym not in futures_syms: # 只處理有合約的幣
+                if futures_syms and sym not in futures_syms:  # fallback 時才過濾
                     continue
                 pct = float(d['priceChangePercent'])
                 if pct > 0:
@@ -222,20 +246,20 @@ def fall_snap():
         top_200 = sorted_coins[:200]
         for i, coin in enumerate(top_200):
             coin['rank'] = i + 1
-            
+
         snap = {
             "ts": int(time.time() * 1000),
             "ranked": top_200
         }
         r.rpush("radar:fall:snaps", json.dumps(snap))
-        # Keep only the last 75 snapshots (75 hours)
         r.ltrim("radar:fall:snaps", -75, -1)
-        r.delete("radar:last_error") # Clear any previous error
-        logger.info("Task: fall_snap completed.")
+        r.delete("radar:last_error")
+        logger.info(f"Task: fall_snap completed. {len(top_200)} coins ranked.")
     elif r:
-        err_msg = f"Failed to get valid list data from Binance. Received: {str(data)[:200]}"
+        err_msg = f"Failed to get valid list data. Received: {str(data)[:200]}"
         logger.error(err_msg)
         r.set("radar:last_error", err_msg)
+
 
 from datetime import datetime
 
