@@ -32,29 +32,111 @@ def _safe_float(v, default=0.0):
     except (TypeError, ValueError):
         return default
 
-def get_futures_ticker():
-    """Fetch 24H ticker data from Binance Futures API (all perpetuals)."""
-    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
-    endpoints = [
-        'https://fapi.binance.com/fapi/v1/ticker/24hr',
-        'https://fapi.binance.com/fapi/v2/ticker/24hr',  # v2 fallback
-    ]
-    for attempt in range(3):  # up to 3 retries
-        for url in endpoints:
-            try:
-                resp = requests.get(url, timeout=30, headers=headers)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list) and len(data) > 0:
-                        logger.info(f"[OK] Futures ticker ({url}): {len(data)} symbols")
-                        return data
-                logger.warning(f"Futures ticker {url}: HTTP {resp.status_code}")
-            except Exception as e:
-                logger.warning(f"Futures ticker {url} attempt {attempt+1}: {e}")
-        if attempt < 2:
-            time.sleep(3)  # wait 3s before retry
-    logger.error("get_futures_ticker: all attempts failed")
+HEADERS = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+
+def get_bybit_ticker():
+    """Fetch 24H ticker from Bybit linear perpetuals (no geo-restrictions)."""
+    try:
+        resp = requests.get(
+            'https://api.bybit.com/v5/market/tickers',
+            params={'category': 'linear'}, timeout=20, headers=HEADERS
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get('retCode') == 0:
+                normalized = []
+                for t in data.get('result', {}).get('list', []):
+                    sym = t.get('symbol', '')
+                    if not sym.endswith('USDT'):
+                        continue
+                    pct = float(t.get('price24hPcnt', 0)) * 100  # Bybit = decimal, convert to %
+                    normalized.append({
+                        'symbol': sym,
+                        'priceChangePercent': str(round(pct, 4)),
+                        'lastPrice': str(t.get('lastPrice', 0)),
+                        'quoteVolume': str(t.get('turnover24h', 0)),
+                    })
+                if normalized:
+                    logger.info(f"[OK] Bybit ticker fallback: {len(normalized)} symbols")
+                    return normalized
+    except Exception as e:
+        logger.error(f"Bybit ticker: {e}")
     return None
+
+
+def get_futures_ticker():
+    """Fetch 24H ticker: try Binance Futures first, fall back to Bybit."""
+    # 1. Binance Futures (may be blocked from US IPs)
+    try:
+        resp = requests.get(
+            'https://fapi.binance.com/fapi/v1/ticker/24hr',
+            timeout=20, headers=HEADERS
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, list) and data:
+                logger.info(f"[OK] Binance Futures ticker: {len(data)} symbols")
+                return data
+        logger.warning(f"Binance fapi ticker: HTTP {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Binance fapi ticker: {e}")
+
+    # 2. Bybit fallback
+    return get_bybit_ticker()
+
+
+def get_bybit_symbols():
+    """Get list of Bybit USDT linear perpetual symbols as fallback."""
+    try:
+        resp = requests.get(
+            'https://api.bybit.com/v5/market/tickers',
+            params={'category': 'linear'}, timeout=20, headers=HEADERS
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get('retCode') == 0:
+                syms = {t['symbol'] for t in data.get('result', {}).get('list', [])
+                        if t.get('symbol', '').endswith('USDT')}
+                if syms:
+                    logger.info(f"[OK] Bybit symbols: {len(syms)}")
+                    return syms
+    except Exception as e:
+        logger.error(f"Bybit symbols: {e}")
+    return set()
+
+
+def get_futures_symbols():
+    """Get USDT perpetual symbols: try Binance fapi, fall back to Bybit."""
+    global futures_symbols_cache, futures_symbols_cache_time
+    if time.time() - futures_symbols_cache_time < 6 * 3600 and futures_symbols_cache:
+        return futures_symbols_cache
+
+    new_symbols = set()
+    # 1. Binance Futures exchangeInfo
+    try:
+        resp = requests.get('https://fapi.binance.com/fapi/v1/exchangeInfo',
+                            timeout=20, headers=HEADERS)
+        if resp.status_code == 200:
+            for s in resp.json().get('symbols', []):
+                if s.get('contractType') == 'PERPETUAL' and s['symbol'].endswith('USDT'):
+                    new_symbols.add(s['symbol'])
+            if new_symbols:
+                futures_symbols_cache = new_symbols
+                futures_symbols_cache_time = time.time()
+                logger.info(f"[OK] Binance futures symbols: {len(new_symbols)}")
+                return new_symbols
+        logger.warning(f"Binance fapi exchangeInfo: HTTP {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Binance fapi exchangeInfo: {e}")
+
+    # 2. Bybit fallback
+    new_symbols = get_bybit_symbols()
+    if new_symbols:
+        futures_symbols_cache = new_symbols
+        futures_symbols_cache_time = time.time()
+    return futures_symbols_cache
+
+
 
 
 
@@ -109,20 +191,43 @@ def init_startup():
             fall_snap()
 
 # ── EMA200 Breakout ──────────────────────────────────────────
+def fetch_klines_bybit(symbol, limit=212):
+    """Fetch 1H klines from Bybit as fallback. Returns Binance-compatible format."""
+    try:
+        resp = requests.get(
+            'https://api.bybit.com/v5/market/kline',
+            params={'category': 'linear', 'symbol': symbol, 'interval': '60', 'limit': limit},
+            timeout=10, headers=HEADERS
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get('retCode') == 0:
+                klines = data.get('result', {}).get('list', [])
+                # Bybit = newest first → reverse to oldest first
+                klines.reverse()
+                # Normalize to Binance-compatible: index4=close, index7=quoteVolume
+                # Bybit format: [time, open, high, low, close, volume, turnover]
+                return [[k[0], k[1], k[2], k[3], k[4], k[5], None, k[6]] for k in klines]
+    except Exception as e:
+        logger.debug(f"Bybit klines {symbol}: {e}")
+    return None
+
+
 def fetch_klines_1h(symbol, limit=212):
-    """Fetch 1H klines from Binance Futures API (accessible from US servers)."""
-    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
+    """Fetch 1H klines: try Binance Futures, fall back to Bybit."""
     try:
         resp = requests.get(
             'https://fapi.binance.com/fapi/v1/klines',
             params={'symbol': symbol, 'interval': '1h', 'limit': limit},
-            timeout=10, headers=headers
+            timeout=10, headers=HEADERS
         )
         if resp.status_code == 200:
             return resp.json()
+        logger.debug(f"Binance klines {symbol}: HTTP {resp.status_code}, trying Bybit")
     except Exception as e:
-        logger.debug(f"klines {symbol}: {e}")
-    return None
+        logger.debug(f"Binance klines {symbol}: {e}, trying Bybit")
+    return fetch_klines_bybit(symbol, limit)
+
 
 def ema_snap():
     """Scan futures USDT pairs for 1H EMA200 breakouts."""
