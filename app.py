@@ -32,171 +32,8 @@ def _safe_float(v, default=0.0):
     except (TypeError, ValueError):
         return default
 
-def get_binance_data():
-    """Fetch 24H ticker data. Try multiple sources in order."""
-    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
-
-    # ── 1. Binance Global (works outside US) ──
-    for url in [
-        'https://api.binance.com/api/v3/ticker/24hr',
-        'https://api1.binance.com/api/v3/ticker/24hr',
-        'https://api2.binance.com/api/v3/ticker/24hr',
-        'https://api3.binance.com/api/v3/ticker/24hr',
-    ]:
-        try:
-            resp = requests.get(url, timeout=15, headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list) and len(data) > 0:
-                    logger.info(f"[OK] Binance global: {len(data)} tickers")
-                    return data
-            elif resp.status_code == 451:
-                logger.warning("Binance global: HTTP 451 (US IP blocked). Skipping remaining global endpoints.")
-                break  # All global endpoints will also be 451, skip early
-            else:
-                logger.warning(f"Binance global {url}: HTTP {resp.status_code}")
-        except Exception as e:
-            logger.warning(f"Binance global {url}: {e}")
-
-    # ── 2. Binance US (same format, designed for US IPs) ──
-    try:
-        resp = requests.get('https://api.binance.us/api/v3/ticker/24hr', timeout=15, headers=headers)
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                logger.info(f"[OK] Binance US: {len(data)} tickers")
-                return data
-        else:
-            logger.warning(f"Binance US: HTTP {resp.status_code}")
-    except Exception as e:
-        logger.warning(f"Binance US: {e}")
-
-    # ── 3. OKX (no geo-restrictions) ──
-    try:
-        resp = requests.get('https://www.okx.com/api/v5/market/tickers?instType=SPOT', timeout=15, headers=headers)
-        if resp.status_code == 200:
-            okx_data = resp.json().get('data', [])
-            normalized = []
-            for t in okx_data:
-                inst_id = t.get('instId', '')
-                if not inst_id.endswith('-USDT'):
-                    continue
-                sym = inst_id.replace('-', '')
-                last = float(t.get('last') or 0)
-                open_ = float(t.get('open24h') or 0)
-                pct = ((last - open_) / open_ * 100) if open_ > 0 else 0
-                vol = float(t.get('volCcy24h') or 0)
-                normalized.append({
-                    'symbol': sym,
-                    'priceChangePercent': str(round(pct, 4)),
-                    'lastPrice': str(last),
-                    'quoteVolume': str(vol),
-                })
-            if normalized:
-                logger.info(f"[OK] OKX fallback: {len(normalized)} tickers")
-                return normalized
-        else:
-            logger.warning(f"OKX: HTTP {resp.status_code}")
-    except Exception as e:
-        logger.warning(f"OKX: {e}")
-
-    # ── 4. CoinGecko (last resort, rate-limited) ──
-    try:
-        time.sleep(1)  # small delay to avoid instant 429
-        cg_url = 'https://api.coingecko.com/api/v3/coins/markets'
-        params = {
-            'vs_currency': 'usd',
-            'order': 'price_change_percentage_24h_desc',
-            'per_page': 250,
-            'page': 1,
-            'sparkline': False,
-        }
-        resp = requests.get(cg_url, params=params, timeout=20, headers=headers)
-        if resp.status_code == 200:
-            cg_data = resp.json()
-            normalized = []
-            for coin in cg_data:
-                pct = coin.get('price_change_percentage_24h') or 0
-                sym = (coin.get('symbol') or '').upper() + 'USDT'
-                normalized.append({
-                    'symbol': sym,
-                    'priceChangePercent': str(pct),
-                    'lastPrice': str(coin.get('current_price') or 0),
-                    'quoteVolume': str(coin.get('total_volume') or 0),
-                })
-            if normalized:
-                logger.info(f"[OK] CoinGecko fallback: {len(normalized)} tickers")
-                return normalized
-        else:
-            logger.error(f"CoinGecko: HTTP {resp.status_code}")
-    except Exception as e:
-        logger.error(f"CoinGecko: {e}")
-
-    logger.error("All data sources failed.")
-    return None
-
-
-
-
-
-
-import re
-
-futures_symbols_cache = set()
-futures_symbols_cache_time = 0
-
-def get_futures_symbols():
-    """Fetch the list of symbols that have perpetual futures contracts."""
-    global futures_symbols_cache, futures_symbols_cache_time
-    # Cache for 6 hours
-    if time.time() - futures_symbols_cache_time < 6 * 3600 and futures_symbols_cache:
-        return futures_symbols_cache
-        
-    headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
-    new_symbols = set()
-    
-    def normalize_sym(s):
-        # Remove multiplier prefixes like 1000PEPEUSDT -> PEPEUSDT
-        m = re.match(r'^(1000000|100000|10000|1000|100)?(.*)$', s)
-        return m.group(2) if m else s
-
-    # 1. Try Binance Futures API
-    try:
-        resp = requests.get('https://fapi.binance.com/fapi/v1/exchangeInfo', timeout=15, headers=headers)
-        if resp.status_code == 200:
-            for s in resp.json().get('symbols', []):
-                if s.get('contractType') == 'PERPETUAL':
-                    new_symbols.add(normalize_sym(s['symbol']))
-            if new_symbols:
-                futures_symbols_cache = new_symbols
-                futures_symbols_cache_time = time.time()
-                logger.info(f"[OK] Fetched {len(new_symbols)} futures from Binance")
-                return new_symbols
-    except Exception as e:
-        logger.warning(f"Failed to fetch Binance Futures: {e}")
-        
-    # 2. Try CoinGecko Derivatives API as fallback
-    try:
-        time.sleep(1)
-        resp = requests.get('https://api.coingecko.com/api/v3/derivatives/exchanges/binance_futures?include_tickers=unexpired', timeout=15, headers=headers)
-        if resp.status_code == 200:
-            for t in resp.json().get('tickers', []):
-                sym = t.get('symbol', '').upper().replace('-', '')
-                new_symbols.add(normalize_sym(sym))
-            if new_symbols:
-                futures_symbols_cache = new_symbols
-                futures_symbols_cache_time = time.time()
-                logger.info(f"[OK] Fetched {len(new_symbols)} futures from CoinGecko")
-                return new_symbols
-    except Exception as e:
-        logger.warning(f"Failed to fetch CoinGecko Futures: {e}")
-
-    return futures_symbols_cache
-
-
 def get_futures_ticker():
-    """Fetch 24H ticker data directly from Binance Futures API.
-    This includes futures-only coins that don't exist on spot market."""
+    """Fetch 24H ticker data from Binance Futures API (USDT perpetuals only)."""
     headers = {'User-Agent': 'Mozilla/5.0 (compatible; BinanceRadar/1.0)'}
     try:
         resp = requests.get(
@@ -207,30 +44,23 @@ def get_futures_ticker():
             data = resp.json()
             if isinstance(data, list) and len(data) > 0:
                 logger.info(f"[OK] Futures ticker: {len(data)} symbols")
-                return data, False   # (data, needs_futures_filter)
+                return data
         logger.warning(f"Futures ticker HTTP {resp.status_code}")
     except Exception as e:
         logger.warning(f"Futures ticker failed: {e}")
-
-    # Fallback: spot data + futures filter
-    logger.warning("Falling back to spot data with futures filter")
-    data = get_binance_data()
-    return data, True   # needs_futures_filter=True
+    return None
 
 
 def fall_snap():
     logger.info("Task: fall_snap starting...")
-    data, needs_filter = get_futures_ticker()
-    futures_syms = get_futures_symbols() if needs_filter else None
+    data = get_futures_ticker()
 
     if data and isinstance(data, list) and r:
         sorted_coins = []
         for d in data:
             try:
                 sym = d['symbol']
-                if not sym.endswith('USDT'):         # USDT 配對限定
-                    continue
-                if futures_syms and sym not in futures_syms:  # fallback 時才過濾
+                if not sym.endswith('USDT'):  # USDT 配對限定
                     continue
                 pct = float(d['priceChangePercent'])
                 if pct > 0:
