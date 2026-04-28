@@ -1,0 +1,16 @@
+app = 'binance-radar'
+primary_region = 'sin'   # Singapore — Binance API 可正常連線
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1   # 必須保持常駐，APScheduler 才能每小時觸發快照
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
